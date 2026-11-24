@@ -195,7 +195,7 @@ impl ComplexFft {
                 n /= 8;
                 s *= 8;
             } else if n == 4 {
-                self.radix4_stage(src, dst, n, s, inverse);
+                self.radix4_last(src, dst, s, inverse);
                 n = 1;
             } else {
                 // n == 2: the only twiddle factor is 1
@@ -273,36 +273,28 @@ impl ComplexFft {
         }
     }
 
-    /// One radix-4 DIF stage of the Stockham FFT: `src` to `dst`, current length `n`, stride `s`.
-    fn radix4_stage(&self, src: &[Complex], dst: &mut [Complex], n: usize, s: usize, inverse: bool) {
-        let m = n / 4;
-        let step = self.n / n; // twiddle index of `exp(-2 pi i / n)`
-        for p in 0..m {
-            let tw = |k: usize| {
-                let w = self.twiddle[k * step];
-                if inverse { w.conj() } else { w }
+    /// The last stage when `log2(N)` leaves a remainder of 2: radix 4 with `n = 4`, so `p = 0` and
+    /// all three twiddle factors are 1. `s = N/4` is the stride.
+    fn radix4_last(&self, src: &[Complex], dst: &mut [Complex], s: usize, inverse: bool) {
+        for q in 0..s {
+            let a = src[q];
+            let b = src[q + s];
+            let c = src[q + 2 * s];
+            let d = src[q + 3 * s];
+            let apc = a + c;
+            let amc = a - c;
+            let bpd = b + d;
+            let bmd = b - d;
+            // multiplication of `bmd` by -i (forward) or +i (inverse)
+            let jbmd = if inverse {
+                Complex::new(-bmd.im, bmd.re)
+            } else {
+                Complex::new(bmd.im, -bmd.re)
             };
-            let (w1, w2, w3) = (tw(p), tw(2 * p), tw(3 * p));
-            for q in 0..s {
-                let a = src[q + s * p];
-                let b = src[q + s * (p + m)];
-                let c = src[q + s * (p + 2 * m)];
-                let d = src[q + s * (p + 3 * m)];
-                let apc = a + c;
-                let amc = a - c;
-                let bpd = b + d;
-                let bmd = b - d;
-                // multiplication of `bmd` by -i (forward) or +i (inverse)
-                let jbmd = if inverse {
-                    Complex::new(-bmd.im, bmd.re)
-                } else {
-                    Complex::new(bmd.im, -bmd.re)
-                };
-                dst[q + s * (4 * p)] = apc + bpd;
-                dst[q + s * (4 * p + 1)] = (amc + jbmd) * w1;
-                dst[q + s * (4 * p + 2)] = (apc - bpd) * w2;
-                dst[q + s * (4 * p + 3)] = (amc - jbmd) * w3;
-            }
+            dst[q] = apc + bpd;
+            dst[q + s] = amc + jbmd;
+            dst[q + 2 * s] = apc - bpd;
+            dst[q + 3 * s] = amc - jbmd;
         }
     }
 

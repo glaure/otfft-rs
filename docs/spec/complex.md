@@ -58,7 +58,7 @@ In the C++ library
 Decided
 -------
 
-*   D2, D3, D5, D8, D9.
+*   D2, D3, D5, D8, D9, D10.
 
 Questions
 ---------

@@ -15,7 +15,7 @@ fn input(n: usize) -> Vec<(f64, f64)> {
 
 fn bench(c: &mut Criterion) {
     let mut group = c.benchmark_group("complex_fwd");
-    for log2n in [4, 6, 8, 10, 12, 14, 16, 18, 20] {
+    for log2n in [4, 6, 8, 10, 11, 12, 14, 16, 17, 18, 20] {
         let n = 1usize << log2n;
         group.throughput(Throughput::Elements(n as u64));
         let data = input(n);
