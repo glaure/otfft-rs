@@ -1,8 +1,9 @@
 //! Stockham FFT after OTFFT by OK Ojisan (Takuya OKAHISA).
 //!
-//! Scalar Stockham autosort FFT for power-of-two lengths: radix-8 stages, then one radix-4 or
-//! radix-2 stage when `log2(N)` is not a multiple of 3 (step 3). It is the correctness baseline
-//! that the radix-16 and SIMD versions are measured against.
+//! Scalar Stockham autosort FFT for power-of-two lengths, in several algorithm classes (`Kernel`):
+//! radix-4 stages (`Dif4`) and radix-8 stages in tiles (`Dif8`, the default), each ending with a
+//! smaller stage when `log2(N)` does not fit (step 3). It is the correctness baseline that the
+//! SIMD versions are measured against.
 //!
 //! The names and scales follow the C++ library (`fwd` divides by N, `inv` does not):
 //!
@@ -120,23 +121,66 @@ pub enum Scale {
     Unitary,
 }
 
+/// The algorithm class of a transform: the largest radix of its Stockham stages, with the names
+/// of the C++ classes (`DIF4`, `DIF8`; decimation in frequency). All classes give the same result
+/// up to rounding; which one is the fastest depends on the CPU, the compiler and the length (the
+/// C++ library measures it with `ffttune`, README step 8), so the choice is part of the plan.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Kernel {
+    /// Radix-4 stages, one radix-2 stage at the end when `log2(N)` is odd.
+    Dif4,
+    /// Radix-8 stages in tiles, then one radix-4 or radix-2 stage when `log2(N)` is not a
+    /// multiple of 3.
+    Dif8,
+}
+
+impl Kernel {
+    /// Every class, in the order of the radix.
+    pub const ALL: &'static [Kernel] = &[Kernel::Dif4, Kernel::Dif8];
+
+    /// The class that `ComplexFft::new` picks for length `n`: the fastest one measured on the
+    /// development machine (`docs/benchmarks.md`), until the tuning of README step 8 exists.
+    pub fn default_for(_n: usize) -> Kernel {
+        Kernel::Dif8
+    }
+
+    /// Largest radix of the stages.
+    fn radix(self) -> usize {
+        match self {
+            Kernel::Dif4 => 4,
+            Kernel::Dif8 => 8,
+        }
+    }
+}
+
 /// Plan of a complex in-place FFT of a power-of-two length. The plan holds only the twiddle
 /// factors, so it can be shared between threads; every call brings its own scratch buffer.
 #[derive(Clone, Debug)]
 pub struct ComplexFft {
     n: usize,
-    /// `exp(-2 pi i k / n)` for `k` in `0..n` (the radix-4 stage reads up to index `3n/4`)
+    kernel: Kernel,
+    /// `exp(-2 pi i k / n)` for `k` in `0..n` (a stage reads up to index `(radix - 1) n / radix`)
     twiddle: Vec<Complex>,
 }
 
 impl ComplexFft {
-    /// Plan for length `n` (a power of two, at least 1).
+    /// Plan for length `n` (a power of two, at least 1) with the default class for that length.
     pub fn new(n: usize) -> Result<Self, Error> {
+        Self::with_kernel(n, Kernel::default_for(n))
+    }
+
+    /// Plan for length `n` with the given algorithm class.
+    pub fn with_kernel(n: usize, kernel: Kernel) -> Result<Self, Error> {
         if n == 0 || !n.is_power_of_two() {
             return Err(Error::UnsupportedLength(n));
         }
         let twiddle = (0..n).map(|k| Complex::expj(-2.0 * PI * k as f64 / n as f64)).collect();
-        Ok(ComplexFft { n, twiddle })
+        Ok(ComplexFft { n, kernel, twiddle })
+    }
+
+    /// The algorithm class of this plan.
+    pub fn kernel(&self) -> Kernel {
+        self.kernel
     }
 
     pub fn len(&self) -> usize {
@@ -177,23 +221,28 @@ impl ComplexFft {
         Ok(())
     }
 
-    /// Stockham autosort, decimation in frequency. Each radix-8 stage splits the transform of
-    /// length `n` with stride `s` into eight of length `n/8` with stride `8s`; one radix-4 or
-    /// radix-2 stage ends the run when `log2(N)` is not a multiple of 3. The data moves between
-    /// `x` and `y`, and no bit reversal is needed.
+    /// Stockham autosort, decimation in frequency. Each stage of radix `r` splits the transform of
+    /// length `n` with stride `s` into `r` of length `n/r` with stride `r*s`; the class (`Kernel`)
+    /// sets the largest radix, and one smaller stage ends the run when `log2(N)` does not fit. The
+    /// data moves between `x` and `y`, and no bit reversal is needed.
     fn stockham(&self, x: &mut [Complex], y: &mut [Complex], dir: Direction) {
         let total = self.n;
         let inverse = dir == Direction::Inverse;
+        let radix = self.kernel.radix();
         let mut n = total;
         let mut s = 1;
         let mut in_x = true; // where the current data is
         while n > 1 {
             let (src, dst): (&[Complex], &mut [Complex]) =
                 if in_x { (&*x, &mut *y) } else { (&*y, &mut *x) };
-            if n >= 8 {
+            if n >= 8 && radix >= 8 {
                 self.radix8_stage(src, dst, n, s, inverse);
                 n /= 8;
                 s *= 8;
+            } else if n >= 8 {
+                self.radix4_stage(src, dst, n, s, inverse);
+                n /= 4;
+                s *= 4;
             } else if n == 4 {
                 self.radix4_last(src, dst, s, inverse);
                 n = 1;
@@ -269,6 +318,41 @@ impl ComplexFft {
                         dst[out + s * r] = v * w;
                     }
                 }
+            }
+        }
+    }
+
+    /// One radix-4 DIF stage of the Stockham FFT with twiddles: `src` to `dst`, current length
+    /// `n` (at least 8), stride `s`. Used by the `Dif4` class; the last stage, with `n = 4`, is
+    /// `radix4_last`.
+    fn radix4_stage(&self, src: &[Complex], dst: &mut [Complex], n: usize, s: usize, inverse: bool) {
+        let m = n / 4;
+        let step = self.n / n; // twiddle index of `exp(-2 pi i / n)`
+        for p in 0..m {
+            let tw = |k: usize| {
+                let w = self.twiddle[k * step];
+                if inverse { w.conj() } else { w }
+            };
+            let (w1, w2, w3) = (tw(p), tw(2 * p), tw(3 * p));
+            for q in 0..s {
+                let a = src[q + s * p];
+                let b = src[q + s * (p + m)];
+                let c = src[q + s * (p + 2 * m)];
+                let d = src[q + s * (p + 3 * m)];
+                let apc = a + c;
+                let amc = a - c;
+                let bpd = b + d;
+                let bmd = b - d;
+                // multiplication of `bmd` by -i (forward) or +i (inverse)
+                let jbmd = if inverse {
+                    Complex::new(-bmd.im, bmd.re)
+                } else {
+                    Complex::new(bmd.im, -bmd.re)
+                };
+                dst[q + s * (4 * p)] = apc + bpd;
+                dst[q + s * (4 * p + 1)] = (amc + jbmd) * w1;
+                dst[q + s * (4 * p + 2)] = (apc - bpd) * w2;
+                dst[q + s * (4 * p + 3)] = (amc - jbmd) * w3;
             }
         }
     }

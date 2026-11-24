@@ -132,3 +132,26 @@ D11: benchmark against FFTW through an optional feature and a small binding
     and medians of the C++ program; the planner lock serialises plan creation across threads
     (FFTW's planner is not thread-safe). The feature needs `libfftw3` on the linker path (on
     Linux `libfftw3-dev`); on other systems, set `RUSTFLAGS="-L <dir>"`. CI does not run it.
+
+D12: the algorithm class is part of the plan
+--------------------------------------------
+*   **What:** `Kernel` names the algorithm class of a transform, with the names of the C++ classes
+    (`Dif4`, `Dif8` now; `Dif16` and the `Dit` classes later). `ComplexFft::with_kernel(n, kernel)`
+    makes a plan with a given class, `kernel()` returns it, and `ComplexFft::new(n)` uses
+    `Kernel::default_for(n)`, which is `Dif8` for every length until the tuning of README step 8
+    exists. `Dif4` has radix-4 stages (the general stage with twiddles is back, as D10 had removed
+    it) and `Dif8` has the radix-8 stages of D9; both end with a smaller stage when log2(N) does
+    not fit. Every class is tested against the direct sum.
+*   **Why:** the fastest class is not a property of the algorithm. In the C++ benchmarks the best
+    class per length differs between an Intel Core Ultra 7 (MSVC: DIF8 almost everywhere), a Ryzen
+    9 9950X and a Ryzen 9 3900X (GCC: DIF4, DIF8, DIF16 or SixStep, by length), and the fixed table
+    of the C++ fork loses 1.1x to 3.3x against the best (`docs/benchmarks.md` of the fork,
+    "Algorithm selection baseline"; D22 there). A kernel that loses on one machine is therefore
+    kept, as long as it is correct and tested, so that a per-machine table can choose it. This
+    replaces the earlier practice of adding only kernels that were faster on the development
+    machine (the Ryzen 3900X, one compiler).
+*   **Rejected:** a cargo feature per class (a rebuild per machine, which D22 of the C++ library
+    avoids); choosing by measuring at plan time (planning time and noise, left to step 8).
+*   **Limit:** the default is one class for all lengths, from B3 on one machine; there is no
+    tuning file or `ffttune` port yet (README step 8). `Dif4` is not tiled (B2 is its measurement).
+    Plans of different classes use the same twiddle table, `n` entries.
