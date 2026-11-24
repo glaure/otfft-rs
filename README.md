@@ -1,7 +1,7 @@
 # otfft-rs
 
 A Rust port of [OTFFT](http://wwwa.pikara.ne.jp/okojisan/otfft-en/download.html) by OK Ojisan
-(Takuya OKAHISA), based on the Stockham autosort FFT. Private project (`publish = false`). MIT
+(Takuya OKAHISA), based on the Stockham autosort FFT. MIT
 license, with the notices of the original author and of the DEWETRON fork (see `LICENSE`).
 
 The C++ fork and its measurements are the reference: <https://github.com/DEWETRON/otfft>
