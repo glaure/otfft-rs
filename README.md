@@ -44,6 +44,12 @@ inputs.
 6. [ ] Other lengths: mixed radix 3, 5, 7 and Bluestein for large prime factors (C++ roadmap R1.4,
    R1.5; keep the prime-length bug of issue #16 out: use `usize`/`u64` for index products).
 7. [ ] Threads (rayon, optional feature), thresholds at the measured break-even (C++ D17).
+8. [ ] Port of the `ffttune` tool (C++ `tools/ffttune`, R1.8, D12, D22, D23): a tool that times
+   every kernel of step 3 per power-of-two length, checks each result against the direct sum or
+   a reference kernel, prints a table, and writes a tuning file that the library can load to pick
+   the fastest class per length. Needs the kernels of step 3 (the table of the fastest class
+   there is first written by hand from the measurements); worth more after the SIMD kernels of
+   step 4.
 
 ## Design notes
 
