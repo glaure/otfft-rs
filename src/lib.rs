@@ -1,8 +1,8 @@
 //! Stockham FFT after OTFFT by OK Ojisan (Takuya OKAHISA).
 //!
 //! Scalar Stockham autosort FFT for power-of-two lengths, in several algorithm classes (`Kernel`):
-//! radix-4 stages (`Dif4`) and radix-8 stages in tiles (`Dif8`, the default), each ending with a
-//! smaller stage when `log2(N)` does not fit (step 3). It is the correctness baseline that the
+//! radix-4 stages (`Dif4`), radix-8 stages in tiles (`Dif8`, the default) and radix-16 stages in
+//! tiles (`Dif16`), each ending with a smaller stage when `log2(N)` does not fit (step 3). It is the correctness baseline that the
 //! SIMD versions are measured against.
 //!
 //! The names and scales follow the C++ library (`fwd` divides by N, `inv` does not):
@@ -132,11 +132,14 @@ pub enum Kernel {
     /// Radix-8 stages in tiles, then one radix-4 or radix-2 stage when `log2(N)` is not a
     /// multiple of 3.
     Dif8,
+    /// Radix-16 stages in tiles, then one radix-8, radix-4 or radix-2 stage when `log2(N)` is not
+    /// a multiple of 4.
+    Dif16,
 }
 
 impl Kernel {
     /// Every class, in the order of the radix.
-    pub const ALL: &'static [Kernel] = &[Kernel::Dif4, Kernel::Dif8];
+    pub const ALL: &'static [Kernel] = &[Kernel::Dif4, Kernel::Dif8, Kernel::Dif16];
 
     /// The class that `ComplexFft::new` picks for length `n`: the fastest one measured on the
     /// development machine (`docs/benchmarks.md`), until the tuning of README step 8 exists.
@@ -149,6 +152,7 @@ impl Kernel {
         match self {
             Kernel::Dif4 => 4,
             Kernel::Dif8 => 8,
+            Kernel::Dif16 => 16,
         }
     }
 }
@@ -235,7 +239,11 @@ impl ComplexFft {
         while n > 1 {
             let (src, dst): (&[Complex], &mut [Complex]) =
                 if in_x { (&*x, &mut *y) } else { (&*y, &mut *x) };
-            if n >= 8 && radix >= 8 {
+            if n >= 16 && radix >= 16 {
+                self.radix16_stage(src, dst, n, s, inverse);
+                n /= 16;
+                s *= 16;
+            } else if n >= 8 && radix >= 8 {
                 self.radix8_stage(src, dst, n, s, inverse);
                 n /= 8;
                 s *= 8;
@@ -260,6 +268,82 @@ impl ComplexFft {
         }
         if !in_x {
             x.copy_from_slice(y);
+        }
+    }
+
+    /// One radix-16 DIF stage of the Stockham FFT: `src` to `dst`, current length `n`, stride `s`.
+    /// The sixteen inputs are folded into two radix-8 butterflies: the sums `x[j] + x[j+8]` give
+    /// the even outputs, the differences times `exp(-+2 pi i j / 16)` give the odd ones. Tiles of
+    /// `TILE` butterflies, as in `radix8_stage`: the sixteen input streams are `N/16` elements
+    /// apart, so the stage reads a pair of streams at a time.
+    fn radix16_stage(&self, src: &[Complex], dst: &mut [Complex], n: usize, s: usize, inverse: bool) {
+        const TILE: usize = 8;
+        const C1: f64 = 0.923_879_532_511_286_7; // cos(pi/8)
+        const S1: f64 = 0.382_683_432_365_089_8; // sin(pi/8)
+        let step = self.n / n;
+        let span = self.n / 16;
+        let shift = s.trailing_zeros();
+        let len = TILE.min(span);
+        let sg = if inverse { 1.0 } else { -1.0 }; // sign of the exponent
+        let r = std::f64::consts::FRAC_1_SQRT_2;
+        // multiplication by -i (forward) or +i (inverse)
+        let mj = |z: Complex| {
+            if inverse { Complex::new(-z.im, z.re) } else { Complex::new(z.im, -z.re) }
+        };
+        // multiplication by `cr + i * sg * ci`
+        let mc = |z: Complex, cr: f64, ci: f64| {
+            let ci = sg * ci;
+            Complex::new(z.re * cr - z.im * ci, z.re * ci + z.im * cr)
+        };
+        let dft4 = |u: [Complex; 4]| {
+            let (e, f) = (u[0] + u[2], u[0] - u[2]);
+            let (g, h) = (u[1] + u[3], mj(u[1] - u[3]));
+            [e + g, f + h, e - g, f - h]
+        };
+        let dft8 = |u: [Complex; 8]| {
+            let a = [u[0] + u[4], u[1] + u[5], u[2] + u[6], u[3] + u[7]];
+            let d = [u[0] - u[4], u[1] - u[5], u[2] - u[6], u[3] - u[7]];
+            let b = [d[0], (d[1] + mj(d[1])).scale(r), mj(d[2]), (mj(d[3]) - d[3]).scale(r)];
+            let (even, odd) = (dft4(a), dft4(b));
+            [even[0], odd[0], even[1], odd[1], even[2], odd[2], even[3], odd[3]]
+        };
+        let mut a = [[Complex::default(); TILE]; 8];
+        let mut b = [[Complex::default(); TILE]; 8];
+        for t0 in (0..span).step_by(len) {
+            for j in 0..8 {
+                let lo = &src[j * span + t0..j * span + t0 + len];
+                let hi = &src[(j + 8) * span + t0..(j + 8) * span + t0 + len];
+                for u in 0..len {
+                    let (x, y) = (lo[u], hi[u]);
+                    let d = x - y;
+                    a[j][u] = x + y;
+                    // times exp(-+2 pi i j / 16)
+                    b[j][u] = match j {
+                        0 => d,
+                        1 => mc(d, C1, S1),
+                        2 => (d + mj(d)).scale(r),
+                        3 => mc(d, S1, C1),
+                        4 => mj(d),
+                        5 => mc(d, -S1, C1),
+                        6 => (mj(d) - d).scale(r),
+                        _ => mc(d, -C1, S1),
+                    };
+                }
+            }
+            for u in 0..len {
+                let t = t0 + u;
+                let (p, q) = (t >> shift, t & (s - 1));
+                let even = dft8(std::array::from_fn(|j| a[j][u]));
+                let odd = dft8(std::array::from_fn(|j| b[j][u]));
+                let out = q + s * 16 * p;
+                for k in 0..8 {
+                    for (r, v) in [(2 * k, even[k]), (2 * k + 1, odd[k])] {
+                        let w = self.twiddle[r * p * step];
+                        let w = if inverse { w.conj() } else { w };
+                        dst[out + s * r] = v * w;
+                    }
+                }
+            }
         }
     }
 

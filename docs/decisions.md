@@ -155,3 +155,23 @@ D12: the algorithm class is part of the plan
 *   **Limit:** the default is one class for all lengths, from B3 on one machine; there is no
     tuning file or `ffttune` port yet (README step 8). `Dif4` is not tiled (B2 is its measurement).
     Plans of different classes use the same twiddle table, `n` entries.
+
+D13: the Dif16 class (radix-16 stages in tiles)
+-----------------------------------------------
+*   **What:** `Kernel::Dif16`: radix-16 Stockham DIF stages (C++ class DIF16, scalar form) in tiles
+    of 8 butterflies, then one radix-8, radix-4 or radix-2 stage when log2(N) is not a multiple of
+    4. A radix-16 butterfly is two radix-8 butterflies: on the sums `x[j] + x[j+8]` and on the
+    differences times `exp(-+2 pi i j / 16)`. It is not the default (`Kernel::default_for` stays
+    `Dif8`).
+*   **Why:** D12: the best class differs between CPUs, so it is kept. Measured here (B6), it is the
+    fastest class at N = 64 only, and 6% to 49% slower than `Dif8` at most lengths. A first version
+    with the outputs of a tile written one stream at a time was slower again (13% to 129% more
+    than `Dif8`, one pass) and is not kept; the guess that sixteen output streams thrash the cache
+    sets was not supported by it.
+*   **Rejected:** removing it because it loses on the Ryzen 3900X (D12). A guess, not tested: 16
+    complex values are 32 doubles and x86-64 has 16 SSE registers, so the butterfly may spill to the
+    stack, which would be different on ARM64 (32 floating-point registers).
+*   **Limit:** one CPU measured; no ARM64 or Intel data yet. The code is long (the butterfly is
+    written out with closures and arrays) and was not tuned further; N = 16, a single butterfly
+    without memory traffic, takes 96 ns against 78 ns for `Dif8` with its extra radix-2 stage, so
+    the cost is in the butterfly code and not in the cache.

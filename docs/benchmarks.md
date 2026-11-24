@@ -180,3 +180,39 @@ The C++ `docs/benchmarks.md` reports OTFFT as fast as FFTW up to N = 64 and with
 N = 16384 on the same machine model. `otfft-rs` is not there yet: that is the gap that steps 3
 (radix 16, the table of the fastest class) and 4 (SIMD) are to close. These numbers are from a
 different session and FFTW build than the C++ ones, so they are not a head-to-head comparison.
+
+B6: the three classes side by side (Dif4, Dif8, Dif16)
+-------------------------------------------------------
+*   **Machine, compiler, crates:** as B1 (Ryzen 9 3900X, rustc 1.100.0, rustfft 6.4.1). Load
+    average about 1 before and after.
+*   **Command:** `cargo bench --bench complex_fft -- --warm-up-time 2 --measurement-time 5
+    --noplot --save-baseline kern3`: one pass, every class in the same session (D12).
+*   **What:** as B1 (in place, no scaling, no copy), median of criterion's estimate. One pass
+    only: differences under about 5% are within the noise of this machine (B3, B4).
+*   **Classes:** `Dif4` is not tiled (B2). `Dif8` and `Dif16` work on tiles of 8 butterflies
+    (D9, D13).
+
+| N         | Dif4      | Dif8      | Dif16     | fastest | Dif16 / Dif8 | Dif4 / Dif8 | rustfft   |
+|----------:|----------:|----------:|----------:|:-------:|-------------:|------------:|----------:|
+| 16        | 147 ns    | 78 ns     | 96 ns     | Dif8  | 1.23 | 1.89 | 14 ns     |
+| 32        | 340 ns    | 151 ns    | 154 ns    | Dif8  | 1.02 | 2.24 | 27 ns     |
+| 64        | 694 ns    | 358 ns    | 309 ns    | Dif16 | 0.86 | 1.94 | 62 ns     |
+| 256       | 3.09 µs   | 1.55 µs   | 1.81 µs   | Dif8  | 1.17 | 1.99 | 293 ns    |
+| 1024      | 14.03 µs  | 8.18 µs   | 8.60 µs   | Dif8  | 1.05 | 1.72 | 1.81 µs   |
+| 2048      | 29.73 µs  | 17.13 µs  | 20.15 µs  | Dif8  | 1.18 | 1.74 | 4.08 µs   |
+| 4096      | 61.25 µs  | 41.70 µs  | 45.86 µs  | Dif8  | 1.10 | 1.47 | 9.53 µs   |
+| 8192      | 131.52 µs | 87.01 µs  | 92.30 µs  | Dif8  | 1.06 | 1.51 | 21.94 µs  |
+| 16384     | 279.74 µs | 188.98 µs | 193.55 µs | Dif8  | 1.02 | 1.48 | 50.10 µs  |
+| 32768     | 589.53 µs | 432.74 µs | 449.65 µs | Dif8  | 1.04 | 1.36 | 106.30 µs |
+| 65536     | 1.20 ms   | 891.76 µs | 997.65 µs | Dif8  | 1.12 | 1.35 | 237.10 µs |
+| 131072    | 2.55 ms   | 1.84 ms   | 2.16 ms   | Dif8  | 1.17 | 1.39 | 525.60 µs |
+| 262144    | 5.31 ms   | 4.25 ms   | 4.63 ms   | Dif8  | 1.09 | 1.25 | 1.14 ms   |
+| 1048576   | 28.90 ms  | 24.27 ms  | 36.06 ms  | Dif8  | 1.49 | 1.19 | 9.81 ms   |
+
+**Reading:** on this CPU `Dif8` is the fastest class at 13 of the 14 lengths. `Dif16` is faster
+only at N = 64 (14% less time; one radix-16 stage and one radix-4 stage), within 5% of `Dif8` at
+N = 32, 1024, 16384 and 32768, and 6% to 49% slower elsewhere; the largest loss is N = 2^20 (1.49x),
+where every stage is radix 16. `Dif4` takes 1.2x to 2.2x the time of `Dif8`, with the gap
+narrowing from 2.2x (N = 32) to 1.2x (2^20). Nothing here says what the order is on another CPU:
+in the C++ benchmarks the order of `DIF4`, `DIF8` and `DIF16` changes between an Intel CPU and two
+Ryzen CPUs (D12). That is the reason all three stay.
