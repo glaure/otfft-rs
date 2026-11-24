@@ -1,7 +1,8 @@
 //! Stockham FFT after OTFFT by OK Ojisan (Takuya OKAHISA).
 //!
-//! Step 0: scalar radix-2 Stockham autosort FFT for power-of-two lengths. It is the
-//! correctness baseline that the faster radix-4/8/16 and SIMD versions are measured against.
+//! Scalar Stockham autosort FFT for power-of-two lengths: radix-4 stages (step 3, first kernel)
+//! and one radix-2 stage when `log2(N)` is odd. It is the correctness baseline that the radix-8/16
+//! and SIMD versions are measured against.
 //!
 //! The names and scales follow the C++ library (`fwd` divides by N, `inv` does not):
 //!
@@ -124,7 +125,7 @@ pub enum Scale {
 #[derive(Clone, Debug)]
 pub struct ComplexFft {
     n: usize,
-    /// `exp(-2 pi i k / n)` for `k` in `0..n/2`
+    /// `exp(-2 pi i k / n)` for `k` in `0..n` (the radix-4 stage reads up to index `3n/4`)
     twiddle: Vec<Complex>,
 }
 
@@ -134,7 +135,7 @@ impl ComplexFft {
         if n == 0 || !n.is_power_of_two() {
             return Err(Error::UnsupportedLength(n));
         }
-        let twiddle = (0..n / 2).map(|k| Complex::expj(-2.0 * PI * k as f64 / n as f64)).collect();
+        let twiddle = (0..n).map(|k| Complex::expj(-2.0 * PI * k as f64 / n as f64)).collect();
         Ok(ComplexFft { n, twiddle })
     }
 
@@ -176,34 +177,70 @@ impl ComplexFft {
         Ok(())
     }
 
-    /// Stockham autosort, radix 2 decimation in frequency. At each stage the transform of
-    /// length `n` with stride `s` is split into two of length `n/2` with stride `2s`, the data
-    /// moves between `x` and `y`, and no bit reversal is needed.
+    /// Stockham autosort, decimation in frequency. Each radix-4 stage splits the transform of
+    /// length `n` with stride `s` into four of length `n/4` with stride `4s`; when `log2(N)` is
+    /// odd, one radix-2 stage ends the run. The data moves between `x` and `y`, and no bit
+    /// reversal is needed.
     fn stockham(&self, x: &mut [Complex], y: &mut [Complex], dir: Direction) {
         let total = self.n;
+        let inverse = dir == Direction::Inverse;
         let mut n = total;
         let mut s = 1;
         let mut in_x = true; // where the current data is
         while n > 1 {
-            let m = n / 2;
             let (src, dst): (&[Complex], &mut [Complex]) =
                 if in_x { (&*x, &mut *y) } else { (&*y, &mut *x) };
-            for p in 0..m {
-                let w = self.twiddle[p * s];
-                let w = if dir == Direction::Inverse { w.conj() } else { w };
+            if n >= 4 {
+                self.radix4_stage(src, dst, n, s, inverse);
+                n /= 4;
+                s *= 4;
+            } else {
+                // n == 2: the only twiddle factor is 1
                 for q in 0..s {
-                    let a = src[q + s * p];
-                    let b = src[q + s * (p + m)];
-                    dst[q + s * (2 * p)] = a + b;
-                    dst[q + s * (2 * p + 1)] = (a - b) * w;
+                    let a = src[q];
+                    let b = src[q + s];
+                    dst[q] = a + b;
+                    dst[q + s] = a - b;
                 }
+                n = 1;
             }
-            n = m;
-            s *= 2;
             in_x = !in_x;
         }
         if !in_x {
             x.copy_from_slice(y);
+        }
+    }
+
+    /// One radix-4 DIF stage of the Stockham FFT: `src` to `dst`, current length `n`, stride `s`.
+    fn radix4_stage(&self, src: &[Complex], dst: &mut [Complex], n: usize, s: usize, inverse: bool) {
+        let m = n / 4;
+        let step = self.n / n; // twiddle index of `exp(-2 pi i / n)`
+        for p in 0..m {
+            let tw = |k: usize| {
+                let w = self.twiddle[k * step];
+                if inverse { w.conj() } else { w }
+            };
+            let (w1, w2, w3) = (tw(p), tw(2 * p), tw(3 * p));
+            for q in 0..s {
+                let a = src[q + s * p];
+                let b = src[q + s * (p + m)];
+                let c = src[q + s * (p + 2 * m)];
+                let d = src[q + s * (p + 3 * m)];
+                let apc = a + c;
+                let amc = a - c;
+                let bpd = b + d;
+                let bmd = b - d;
+                // multiplication of `bmd` by -i (forward) or +i (inverse)
+                let jbmd = if inverse {
+                    Complex::new(-bmd.im, bmd.re)
+                } else {
+                    Complex::new(bmd.im, -bmd.re)
+                };
+                dst[q + s * (4 * p)] = apc + bpd;
+                dst[q + s * (4 * p + 1)] = (amc + jbmd) * w1;
+                dst[q + s * (4 * p + 2)] = (apc - bpd) * w2;
+                dst[q + s * (4 * p + 3)] = (amc - jbmd) * w3;
+            }
         }
     }
 

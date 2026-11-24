@@ -43,9 +43,9 @@ Rules
     16 bytes, `re` first. A buffer can be handed to C++ code without copying.
     (`complex_has_the_layout_of_the_cpp_complex_t`)
 *   **CFFT-10** `[built]` No `unsafe` code in the transform, and no allocation in `process`.
-*   **CFFT-11** `[gap]` Speed: scalar radix 2, much slower than the C++ library and than RustFFT.
-    Right: at least as fast as the C++ library at the same length (planned steps 2 to 4 in the
-    README). Not measured yet.
+*   **CFFT-11** `[gap]` Speed: scalar radix 4 (and one radix 2 stage for odd log2(N), D8), 3x to 12x
+    slower than RustFFT (`docs/benchmarks.md`, B2). Right: at least as fast as the C++ library at the
+    same length (planned steps 3 and 4 in the README). Not compared with the C++ library yet.
 
 In the C++ library
 ------------------
@@ -58,7 +58,7 @@ In the C++ library
 Decided
 -------
 
-*   D2, D3, D5.
+*   D2, D3, D5, D8.
 
 Questions
 ---------
