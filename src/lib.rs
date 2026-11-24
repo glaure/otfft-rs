@@ -1,8 +1,8 @@
 //! Stockham FFT after OTFFT by OK Ojisan (Takuya OKAHISA).
 //!
-//! Scalar Stockham autosort FFT for power-of-two lengths: radix-4 stages (step 3, first kernel)
-//! and one radix-2 stage when `log2(N)` is odd. It is the correctness baseline that the radix-8/16
-//! and SIMD versions are measured against.
+//! Scalar Stockham autosort FFT for power-of-two lengths: radix-8 stages, then one radix-4 or
+//! radix-2 stage when `log2(N)` is not a multiple of 3 (step 3). It is the correctness baseline
+//! that the radix-16 and SIMD versions are measured against.
 //!
 //! The names and scales follow the C++ library (`fwd` divides by N, `inv` does not):
 //!
@@ -177,10 +177,10 @@ impl ComplexFft {
         Ok(())
     }
 
-    /// Stockham autosort, decimation in frequency. Each radix-4 stage splits the transform of
-    /// length `n` with stride `s` into four of length `n/4` with stride `4s`; when `log2(N)` is
-    /// odd, one radix-2 stage ends the run. The data moves between `x` and `y`, and no bit
-    /// reversal is needed.
+    /// Stockham autosort, decimation in frequency. Each radix-8 stage splits the transform of
+    /// length `n` with stride `s` into eight of length `n/8` with stride `8s`; one radix-4 or
+    /// radix-2 stage ends the run when `log2(N)` is not a multiple of 3. The data moves between
+    /// `x` and `y`, and no bit reversal is needed.
     fn stockham(&self, x: &mut [Complex], y: &mut [Complex], dir: Direction) {
         let total = self.n;
         let inverse = dir == Direction::Inverse;
@@ -190,10 +190,13 @@ impl ComplexFft {
         while n > 1 {
             let (src, dst): (&[Complex], &mut [Complex]) =
                 if in_x { (&*x, &mut *y) } else { (&*y, &mut *x) };
-            if n >= 4 {
+            if n >= 8 {
+                self.radix8_stage(src, dst, n, s, inverse);
+                n /= 8;
+                s *= 8;
+            } else if n == 4 {
                 self.radix4_stage(src, dst, n, s, inverse);
-                n /= 4;
-                s *= 4;
+                n = 1;
             } else {
                 // n == 2: the only twiddle factor is 1
                 for q in 0..s {
@@ -208,6 +211,65 @@ impl ComplexFft {
         }
         if !in_x {
             x.copy_from_slice(y);
+        }
+    }
+
+    /// One radix-8 DIF stage of the Stockham FFT: `src` to `dst`, current length `n`, stride `s`.
+    /// The eight inputs are folded into two radix-4 butterflies: the sums `x[j] + x[j+4]` give the
+    /// even outputs, the differences times `exp(-+2 pi i j / 8)` give the odd ones.
+    ///
+    /// The eight input streams are `N/8` elements apart, a power of two, so they fall in the same
+    /// cache sets. The stage therefore works on tiles of `TILE` elements: it reads a pair of
+    /// streams at a time, and finishes a cache line before it goes to the next stream.
+    fn radix8_stage(&self, src: &[Complex], dst: &mut [Complex], n: usize, s: usize, inverse: bool) {
+        const TILE: usize = 8;
+        let step = self.n / n;
+        let span = self.n / 8; // distance of the input streams, and number of butterflies
+        let shift = s.trailing_zeros(); // `s` is a power of two: p = t >> shift, q = t & (s - 1)
+        let len = TILE.min(span);
+        // multiplication by -i (forward) or +i (inverse)
+        let mj = |z: Complex| {
+            if inverse { Complex::new(-z.im, z.re) } else { Complex::new(z.im, -z.re) }
+        };
+        let r = std::f64::consts::FRAC_1_SQRT_2;
+        let dft4 = |u: [Complex; 4]| {
+            let (e, f) = (u[0] + u[2], u[0] - u[2]);
+            let (g, h) = (u[1] + u[3], mj(u[1] - u[3]));
+            [e + g, f + h, e - g, f - h]
+        };
+        let mut a = [[Complex::default(); TILE]; 4];
+        let mut b = [[Complex::default(); TILE]; 4];
+        for t0 in (0..span).step_by(len) {
+            for j in 0..4 {
+                let lo = &src[j * span + t0..j * span + t0 + len];
+                let hi = &src[(j + 4) * span + t0..(j + 4) * span + t0 + len];
+                for u in 0..len {
+                    let (x, y) = (lo[u], hi[u]);
+                    let d = x - y;
+                    a[j][u] = x + y;
+                    // times exp(-+2 pi i j / 8): 1, (1 -+ i)/sqrt 2, -+i, (-1 -+ i)/sqrt 2
+                    b[j][u] = match j {
+                        0 => d,
+                        1 => (d + mj(d)).scale(r),
+                        2 => mj(d),
+                        _ => (mj(d) - d).scale(r),
+                    };
+                }
+            }
+            for u in 0..len {
+                let t = t0 + u;
+                let (p, q) = (t >> shift, t & (s - 1));
+                let (even, odd) = (dft4([a[0][u], a[1][u], a[2][u], a[3][u]]),
+                                   dft4([b[0][u], b[1][u], b[2][u], b[3][u]]));
+                let out = q + s * 8 * p;
+                for k in 0..4 {
+                    for (r, v) in [(2 * k, even[k]), (2 * k + 1, odd[k])] {
+                        let w = self.twiddle[r * p * step];
+                        let w = if inverse { w.conj() } else { w };
+                        dst[out + s * r] = v * w;
+                    }
+                }
+            }
         }
     }
 
