@@ -45,3 +45,11 @@ D5: scalar radix 2 first
 *   **Why:** a correct and tested baseline to measure the radix-4/8/16 and SIMD steps against, and a
     harness (direct-sum tests) that every later kernel must pass.
 *   **Limit:** slow; not a replacement for the C++ library yet (CFFT-11).
+
+D6: CI on three operating systems
+---------------------------------
+*   **What:** GitHub Actions runs `cargo test` and `cargo clippy --all-targets` on Linux, Windows and
+    macOS with the stable toolchain; warnings are errors (`RUSTFLAGS=-D warnings`).
+*   **Why:** the checks of AGENTS.md rule 10 run on every push and pull request, on every target
+    the SIMD steps (README step 4) will have to support.
+*   **Limit:** no benchmarks in CI; shared runners are too noisy for rule 9 measurements.
