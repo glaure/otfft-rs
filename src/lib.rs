@@ -135,11 +135,15 @@ pub enum Kernel {
     /// Radix-16 stages in tiles, then one radix-8, radix-4 or radix-2 stage when `log2(N)` is not
     /// a multiple of 4.
     Dif16,
+    /// Decimation in time with radix-4 stages (the twiddle factors multiply the inputs of a
+    /// butterfly, and the stages run from the shortest sub-transform to the longest); one radix-2
+    /// stage first when `log2(N)` is odd.
+    Dit4,
 }
 
 impl Kernel {
     /// Every class, in the order of the radix.
-    pub const ALL: &'static [Kernel] = &[Kernel::Dif4, Kernel::Dif8, Kernel::Dif16];
+    pub const ALL: &'static [Kernel] = &[Kernel::Dif4, Kernel::Dif8, Kernel::Dif16, Kernel::Dit4];
 
     /// The class that `ComplexFft::new` picks for length `n`: the fastest one measured on the
     /// development machine (`docs/benchmarks.md`), until the tuning of README step 8 exists.
@@ -150,7 +154,7 @@ impl Kernel {
     /// Largest radix of the stages.
     fn radix(self) -> usize {
         match self {
-            Kernel::Dif4 => 4,
+            Kernel::Dif4 | Kernel::Dit4 => 4,
             Kernel::Dif8 => 8,
             Kernel::Dif16 => 16,
         }
@@ -232,6 +236,9 @@ impl ComplexFft {
     fn stockham(&self, x: &mut [Complex], y: &mut [Complex], dir: Direction) {
         let total = self.n;
         let inverse = dir == Direction::Inverse;
+        if self.kernel == Kernel::Dit4 {
+            return self.stockham_dit4(x, y, inverse);
+        }
         let radix = self.kernel.radix();
         let mut n = total;
         let mut s = 1;
@@ -268,6 +275,75 @@ impl ComplexFft {
         }
         if !in_x {
             x.copy_from_slice(y);
+        }
+    }
+
+    /// Stockham autosort, decimation in time, radix 4. Each stage is the transpose of the DIF
+    /// stage with the same `n` and `s` (the DFT matrix is symmetric): the inputs of a butterfly are
+    /// multiplied by the twiddle factors, then a 4-point DFT follows. The stages run in the reverse
+    /// order of the DIF ones: from `n = 4` (or 2) with `s = N/n` up to `n = N` with `s = 1`.
+    fn stockham_dit4(&self, x: &mut [Complex], y: &mut [Complex], inverse: bool) {
+        if self.n == 1 {
+            return;
+        }
+        let mut n = if self.n.trailing_zeros() % 2 == 1 { 2 } else { 4 };
+        let mut s = self.n / n;
+        let mut in_x = true;
+        while n <= self.n {
+            let (src, dst): (&[Complex], &mut [Complex]) =
+                if in_x { (&*x, &mut *y) } else { (&*y, &mut *x) };
+            match n {
+                2 => {
+                    // the only twiddle factor is 1
+                    for q in 0..s {
+                        let (a, b) = (src[q], src[q + s]);
+                        dst[q] = a + b;
+                        dst[q + s] = a - b;
+                    }
+                }
+                4 => self.radix4_last(src, dst, s, inverse),
+                _ => self.dit4_stage(src, dst, n, s, inverse),
+            }
+            in_x = !in_x;
+            n *= 4;
+            s /= 4;
+        }
+        if !in_x {
+            x.copy_from_slice(y);
+        }
+    }
+
+    /// One radix-4 DIT stage with twiddles: `src` to `dst`, current length `n` (at least 8),
+    /// stride `s`. Input `4p + k` is multiplied by `w^(kp)`, output `p + k n/4` is the DFT.
+    fn dit4_stage(&self, src: &[Complex], dst: &mut [Complex], n: usize, s: usize, inverse: bool) {
+        let m = n / 4;
+        let step = self.n / n;
+        for p in 0..m {
+            let tw = |k: usize| {
+                let w = self.twiddle[k * step];
+                if inverse { w.conj() } else { w }
+            };
+            let (w1, w2, w3) = (tw(p), tw(2 * p), tw(3 * p));
+            for q in 0..s {
+                let a = src[q + s * (4 * p)];
+                let b = src[q + s * (4 * p + 1)] * w1;
+                let c = src[q + s * (4 * p + 2)] * w2;
+                let d = src[q + s * (4 * p + 3)] * w3;
+                let apc = a + c;
+                let amc = a - c;
+                let bpd = b + d;
+                let bmd = b - d;
+                // multiplication of `bmd` by -i (forward) or +i (inverse)
+                let jbmd = if inverse {
+                    Complex::new(-bmd.im, bmd.re)
+                } else {
+                    Complex::new(bmd.im, -bmd.re)
+                };
+                dst[q + s * p] = apc + bpd;
+                dst[q + s * (p + m)] = amc + jbmd;
+                dst[q + s * (p + 2 * m)] = apc - bpd;
+                dst[q + s * (p + 3 * m)] = amc - jbmd;
+            }
         }
     }
 

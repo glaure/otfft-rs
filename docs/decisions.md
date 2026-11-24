@@ -175,3 +175,16 @@ D13: the Dif16 class (radix-16 stages in tiles)
     written out with closures and arrays) and was not tuned further; N = 16, a single butterfly
     without memory traffic, takes 96 ns against 78 ns for `Dif8` with its extra radix-2 stage, so
     the cost is in the butterfly code and not in the cache.
+
+
+D14: the Dit4 class (radix-4 decimation in time)
+------------------------------------------------
+*   **What:** `Kernel::Dit4`: Stockham DIT with radix-4 stages (C++ class DIT4), one radix-2 stage
+    first when log2(N) is odd. Each stage is the transpose of the DIF stage with the same `n` and
+    `s` (the DFT matrix is symmetric): inputs multiplied by the twiddle factors, then the 4-point
+    DFT. The stages run in the reverse order, from `n = 2` or `4` up to `n = N`. The stage with
+    `n = 4` has no twiddles and reuses `radix4_last`. Not the default.
+*   **Why:** D12, every class stays. Measured (B7), it is 2% to 18% faster than `Dif4` and 1.2x to
+    2.4x slower than `Dif8` on the Ryzen 3900X.
+*   **Limit:** not tiled, so it is not comparable with the tiled `Dif8`; `Dit8` and `Dit16`
+    (one per commit) come next. One CPU measured.
