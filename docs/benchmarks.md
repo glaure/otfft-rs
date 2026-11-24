@@ -121,3 +121,62 @@ N = 256, 2048, 16384 and 131072 (the unchanged rows move 1% to 4%), and nothing 
 no better than A (0.98 to 1.03 of A) and slower at 2^20. Tiling does not help a stage with four
 streams, where it helped the radix-8 stage with eight (B3); that fits the cache-set explanation
 for B3 but does not prove it, since B3 also gained at N = 16.
+
+B5: against RustFFT and FFTW, with the method of the C++ benchmark
+-------------------------------------------------------------------
+*   **Machine, compiler:** as B1 (Ryzen 9 3900X, Linux 7.0.0-44-generic, rustc 1.100.0), idle
+    (load average 0.3 after the run). **FFTW:** 3.3.10 from the Debian package, one thread.
+    **RustFFT:** 6.4.1. **Code:** `otfft-rs` after D10 (radix-8 stages in tiles).
+*   **Command:** `cargo bench --features fftw --bench vs_fftw -- --noplot --save-baseline fftw1`
+    (needs `libfftw3-dev`; D11). criterion with 10 samples of 3 s per case, median shown.
+*   **What is timed:** as in the C++ benchmark: one forward unnormalised complex transform with
+    the plan built. `otfft-rs` works in place and the time includes copying the input into its
+    work buffer; RustFFT and FFTW work out of place and do not copy. FFTW is planned with
+    `FFTW_MEASURE` and `FFTW_ESTIMATE`, planning limited to 10 s. Input: random numbers in
+    [-1, 1]. Every result was compared with RustFFT before it was timed (relative error below
+    1e-9, no case was refused). MFLOPS are "equivalent", 5 N log2(N) divided by the time, as in
+    the C++ benchmark.
+*   **Differences from the C++ benchmark:** criterion statistics instead of 11 batches of 2 ms;
+    data not aligned to 64 bytes (FFTW's buffers are, ours come from `Vec`); a different FFTW
+    build (the C++ numbers use 3.3.10 built from the tarball with AVX2); no 12-thread run; powers
+    of two only.
+
+| N         | otfft-rs  | rustfft   | fftw-measure | fftw-estimate | otfft-rs / fftw-measure | MFLOPS otfft-rs | MFLOPS fftw-measure |
+|----------:|----------:|----------:|-------------:|--------------:|-----------------------:|----------------:|--------------------:|
+| 16        | 73.5 ns   | 13.9 ns   | 15.3 ns   | 15.4 ns   |  4.8x |   4354 |  20891 |
+| 32        | 132.0 ns  | 27.8 ns   | 33.1 ns   | 32.8 ns   |  4.0x |   6060 |  24180 |
+| 64        | 345.3 ns  | 64.0 ns   | 61.3 ns   | 61.4 ns   |  5.6x |   5561 |  31323 |
+| 128       | 751.4 ns  | 138.3 ns  | 125.1 ns  | 124.7 ns  |  6.0x |   5962 |  35806 |
+| 256       | 1.53 µs   | 298.0 ns  | 276.1 ns  | 274.6 ns  |  5.5x |   6690 |  37082 |
+| 512       | 3.80 µs   | 751.8 ns  | 627.0 ns  | 610.0 ns  |  6.1x |   6062 |  36748 |
+| 1024      | 7.92 µs   | 1.79 µs   | 1.49 µs   | 1.46 µs   |  5.3x |   6466 |  34393 |
+| 2048      | 16.59 µs  | 4.06 µs   | 3.60 µs   | 3.66 µs   |  4.6x |   6789 |  31267 |
+| 4096      | 40.55 µs  | 9.54 µs   | 9.96 µs   | 9.57 µs   |  4.1x |   6061 |  24678 |
+| 8192      | 86.88 µs  | 21.43 µs  | 20.43 µs  | 21.10 µs  |  4.3x |   6129 |  26062 |
+| 16384     | 185.01 µs | 47.89 µs  | 56.31 µs  | 58.85 µs  |  3.3x |   6199 |  20367 |
+| 32768     | 430.29 µs | 105.85 µs | 124.20 µs | 122.09 µs |  3.5x |   5712 |  19787 |
+| 65536     | 872.08 µs | 244.52 µs | 270.15 µs | 263.05 µs |  3.2x |   6012 |  19407 |
+| 131072    | 1.80 ms   | 549.40 µs | 578.26 µs | 574.04 µs |  3.1x |   6190 |  19267 |
+| 262144    | 4.22 ms   | 1.21 ms   | 1.32 ms   | 1.35 ms   |  3.2x |   5594 |  17868 |
+| 524288    | 10.62 ms  | 3.45 ms   | 5.16 ms   | 5.15 ms   |  2.1x |   4690 |   9647 |
+| 1048576   | 24.27 ms  | 8.76 ms   | 12.37 ms  | 12.34 ms  |  2.0x |   4321 |   8479 |
+| 2097152   | 52.93 ms  | 19.88 ms  | 26.51 ms  | 26.68 ms  |  2.0x |   4160 |   8305 |
+| 4194304   | 110.07 ms | 48.96 ms  | 83.80 ms  | 250.79 ms |  1.3x |   4192 |   5506 |
+
+(Times: median of criterion's estimate; the ratio is time of `otfft-rs` over time of FFTW with
+`FFTW_MEASURE`, so 3.3x means 3.3 times slower.)
+
+**Reading:** `otfft-rs` is 1.3x to 6.1x slower than FFTW with `FFTW_MEASURE`: 4.0x to 6.1x for N
+up to 2048, 3.1x to 4.3x from 4096 to 262144, and 2.0x to 2.1x from 2^19 to 2^21; at 2^22 the gap
+is 1.3x, because FFTW's time rises there (84 ms against 49 ms for RustFFT). RustFFT takes up to
+20% more time than FFTW for N from 512 to 2048, and equal time or up to 15% less from 4096 to
+262144; from 2^19 it takes 1.3x to 1.7x less. `FFTW_ESTIMATE` is as fast as `MEASURE` everywhere
+except N = 2^22 (251 ms against 84 ms). Equivalent MFLOPS of `otfft-rs` stay between 4100 and
+6800 while FFTW's fall from about 37000 (N = 256) to 5500 (2^22). The flat MFLOPS up to 2^18
+suggest that the scalar code is limited by instruction count and not by memory (not tested), which
+is what the SIMD step (4) addresses.
+
+The C++ `docs/benchmarks.md` reports OTFFT as fast as FFTW up to N = 64 and within 1.3x up to
+N = 16384 on the same machine model. `otfft-rs` is not there yet: that is the gap that steps 3
+(radix 16, the table of the fastest class) and 4 (SIMD) are to close. These numbers are from a
+different session and FFTW build than the C++ ones, so they are not a head-to-head comparison.

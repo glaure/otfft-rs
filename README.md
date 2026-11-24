@@ -34,7 +34,9 @@ inputs.
 ## Plan
 
 1. [x] Radix-2 Stockham, tests against the direct sum.
-2. [x] Benchmark against RustFFT (criterion, as dev-dependencies only); `realfft` joins with step 5.
+2. [x] Benchmark against RustFFT (criterion, as dev-dependencies only) and, with the optional
+   feature `fftw` and the system `libfftw3`, against FFTW with the method of the C++ benchmark
+   (`cargo bench --features fftw --bench vs_fftw`, B5, D11); `realfft` joins with step 5.
    Baseline: 4x to 14x slower than RustFFT ([docs/benchmarks.md](docs/benchmarks.md), B1).
 3. [ ] Radix-4, 8 and 16 DIF/DIT kernels (the C++ classes DIF4 to DIT16), a table of the fastest
    class per length like `ffttune` produces. Done: radix-4 and radix-8 DIF stages (D8, D9, B2, B3). Next: radix 16.

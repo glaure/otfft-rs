@@ -21,7 +21,8 @@ Rules
     measured break-even (C++ CFFT-11, D17). README step 7.
 *   **PLN-6** `[planned]` Benchmarks against `realfft` (with the real FFT) and a table that compares
     with the C++ numbers in `docs/benchmarks.md` of the fork, run on the same machine. The complex
-    comparison with RustFFT is done (BLD-7).
+    comparison with RustFFT is done (BLD-7), and the one with FFTW, with the method of the C++
+    benchmark (BLD-8, B5).
 *   **PLN-7** `[planned]` A port of the `ffttune` tool: it times each kernel per power-of-two
     length, checks the results, prints a table of the fastest class per length, and writes a
     tuning file that the library can load (C++ D12, D22, D23; FAC-9 to FAC-13). Kept as a tool
