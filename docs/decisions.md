@@ -110,3 +110,25 @@ D10: the last radix-4 stage has no twiddles and no tiling
 *   **Limit:** the gain is small and close to the noise of the machine (1% to 4%); it was seen at
     four of four affected lengths below 2^20. If a radix-4 stage with twiddles is needed again (DIT
     kernels, or a table that picks radix 4 in the middle of a run), it comes back with that change.
+
+D11: benchmark against FFTW through an optional feature and a small binding
+---------------------------------------------------------------------------
+*   **What:** `benches/vs_fftw.rs` times `otfft-rs`, RustFFT and FFTW 3 (`FFTW_MEASURE` and
+    `FFTW_ESTIMATE`, planning limited to 10 s, one thread) for N = 2^4 to 2^22, with the method of
+    the C++ benchmark: one forward unnormalised transform with the plan built; `otfft-rs` works in
+    place and includes the copy of the input, RustFFT and FFTW work out of place; random input in
+    [-1, 1]; every result is compared with RustFFT first and a relative error above 1e-9 stops the
+    run. FFTW comes from the system through a binding of six functions in
+    `benches/support/fftw.rs`, behind the cargo feature `fftw` (off by default, `required-features`
+    on the bench). `tests/fftw.rs` runs the binding (against the direct sum) and `otfft-rs` against
+    FFTW.
+*   **Why:** FFTW is the reference of the C++ benchmark and the common yardstick; the numbers can
+    then be put next to those of `docs/benchmarks.md` of the fork, on the same machine only.
+*   **Rejected:** the `fftw` crate (it brings `fftw-src` or a pkg-config build step and a
+    dependency tree for a benchmark; the binding needs six functions); FFTW as a normal
+    dev-dependency (CI and every contributor would need it); a pure-Rust FFTW lookalike (not FFTW).
+*   **Limit:** one thread only (the C++ benchmark also has a 12-thread run with `fftw3_omp`);
+    complex transforms only, and powers of two only; criterion statistics instead of the batches
+    and medians of the C++ program; the planner lock serialises plan creation across threads
+    (FFTW's planner is not thread-safe). The feature needs `libfftw3` on the linker path (on
+    Linux `libfftw3-dev`); on other systems, set `RUSTFLAGS="-L <dir>"`. CI does not run it.

@@ -9,6 +9,10 @@ publish = false
 
 [dependencies]
 
+[features]
+# Benchmarks and tests against the system FFTW (links libfftw3); the library does not use it (D11).
+fftw = []
+
 [dev-dependencies]
 criterion = "0.8.2"
 realfft = "3.5.1"
@@ -17,3 +21,8 @@ rustfft = "6.4.1"
 [[bench]]
 name = "complex_fft"
 harness = false
+
+[[bench]]
+name = "vs_fftw"
+harness = false
+required-features = ["fftw"]
