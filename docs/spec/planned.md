@@ -18,8 +18,9 @@ Rules
     cannot happen. README step 6.
 *   **PLN-5** `[planned]` Threads through an optional `rayon` feature, with thresholds at the
     measured break-even (C++ CFFT-11, D17). README step 7.
-*   **PLN-6** `[planned]` Benchmarks against RustFFT and `realfft` with `criterion`, and a table
-    that compares with the C++ numbers in `docs/benchmarks.md` of the fork. README step 2.
+*   **PLN-6** `[planned]` Benchmarks against `realfft` (with the real FFT) and a table that compares
+    with the C++ numbers in `docs/benchmarks.md` of the fork, run on the same machine. The complex
+    comparison with RustFFT is done (BLD-7).
 
 Questions
 ---------
