@@ -53,3 +53,15 @@ D6: CI on three operating systems
 *   **Why:** the checks of AGENTS.md rule 10 run on every push and pull request, on every target
     the SIMD steps (README step 4) will have to support.
 *   **Limit:** no benchmarks in CI; shared runners are too noisy for rule 9 measurements.
+
+D7: benchmark against RustFFT with criterion
+--------------------------------------------
+*   **What:** `benches/complex_fft.rs` (criterion) times the complex forward transform of `otfft-rs`
+    against RustFFT, in place with a caller-owned scratch buffer and no scaling, for N = 2^4 to
+    2^20. `criterion`, `rustfft` and `realfft` are `[dev-dependencies]` only. Results go in
+    `docs/benchmarks.md` with machine, compiler and command.
+*   **Why:** RustFFT is the Rust reference for speed, and the numbers show which of README steps 3
+    and 4 pays off first. Timing without allocation and scaling compares the transforms only.
+*   **Rejected:** comparing only with the C++ library (needs it built on the same machine, and gives
+    no Rust baseline); including scaling in the timing (RustFFT does not scale).
+*   **Limit:** `realfft` is unused until the real FFT (README step 5). Short runs are noisy.

@@ -11,7 +11,7 @@ The C++ fork and its measurements are the reference: <https://github.com/DEWETRO
 
 Step 0 is done: a scalar radix-2 Stockham FFT for power-of-two lengths, with the names and scales
 of the C++ library (`fwd` divides by N, `inv` does not). It is the correctness baseline, not yet
-fast.
+fast: step 2 measured it at 4x to 14x slower than RustFFT (`cargo bench`).
 
 ```rust
 use otfft_rs::{Complex, ComplexFft};
@@ -29,11 +29,13 @@ inputs.
 
 - [docs/spec/](docs/spec/README.md): what the crate does, rule by rule, with status tags and the tests
 - [docs/decisions.md](docs/decisions.md): why it is built this way
+- [docs/benchmarks.md](docs/benchmarks.md): measurements, with machine, compiler and command
 
 ## Plan
 
 1. [x] Radix-2 Stockham, tests against the direct sum.
-2. [ ] Benchmark against RustFFT and `realfft` (criterion, as dev-dependencies only).
+2. [x] Benchmark against RustFFT (criterion, as dev-dependencies only); `realfft` joins with step 5.
+   Baseline: 4x to 14x slower than RustFFT ([docs/benchmarks.md](docs/benchmarks.md), B1).
 3. [ ] Radix-4, 8 and 16 DIF/DIT kernels (the C++ classes DIF4 to DIT16), a table of the fastest
    class per length like `ffttune` produces.
 4. [ ] SIMD: AVX2 and SSE2 with run-time selection (`std::arch`, `is_x86_feature_detected!`),
