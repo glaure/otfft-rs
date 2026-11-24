@@ -7,9 +7,9 @@ them here. Order as in the README plan.
 Rules
 -----
 
-*   **PLN-1** `[planned]` Radix-16 kernel, DIT variants of radix 4 and 8, and a table of the fastest
-    class per length (C++: DIF16 to DIT16, `tools/ffttune`, D12, D14). Radix-4 and radix-8 DIF
-    stages are done (CFFT-11, D8, D9). README step 3.
+*   **PLN-1** `[planned]` The classes `Dif16` and the DIT classes (`Dit4`, `Dit8`, `Dit16`), and a
+    table of the fastest class per length and CPU (C++: DIF4 to DIT16, `tools/ffttune`, D12, D14).
+    `Dif4` and `Dif8` are done (CFFT-12, D12). README step 3.
 *   **PLN-2** `[planned]` SIMD with run-time selection: AVX2 and SSE2 with `std::arch` and
     `is_x86_feature_detected!`, a scalar fallback, NEON later (C++ D3). README step 4.
 *   **PLN-3** `[planned]` Real FFT and DCT-II (C++: `RealFFT` with N output values, input of `inv`

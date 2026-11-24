@@ -1,6 +1,6 @@
 //! The FFT against the direct DFT sum, round trips, scales and refused inputs.
 
-use otfft_rs::{Complex, ComplexFft, Direction, Error, Scale};
+use otfft_rs::{Complex, ComplexFft, Direction, Error, Kernel, Scale};
 use std::f64::consts::PI;
 
 /// The same deterministic signal as the C++ tests of the fork.
@@ -192,22 +192,67 @@ fn complex_has_the_layout_of_the_cpp_complex_t() {
     assert_eq!(raw, [1.5, -2.5]); // Re first, then Im
 }
 
-/// The three remainders of log2(N) modulo 3: radix-8 stages only (2^12), plus one radix-2 stage
-/// (2^13), plus one radix-4 stage (2^14).
+/// The three remainders of log2(N) modulo 3 for the radix-8 class (radix-8 stages only at 2^12,
+/// plus one radix-2 stage at 2^13, plus one radix-4 stage at 2^14), and both parities for the
+/// radix-4 class. Every algorithm class, both directions.
 #[test]
 fn large_lengths_of_every_log2_remainder_match_the_direct_sum() {
-    for n in [1usize << 12, 1 << 13, 1 << 14] {
-        let input = signal(n);
-        for (fft_dir, sign) in [(Direction::Forward, -1.0), (Direction::Inverse, 1.0)] {
-            let mut x = input.clone();
-            let fft = ComplexFft::new(n).unwrap();
-            let mut scratch = vec![Complex::default(); fft.scratch_len()];
-            fft.process(&mut x, &mut scratch, fft_dir, Scale::None).unwrap();
-            // a spread of bins, including the first, the last and the middle ones
-            for k in [0, 1, 2, 3, 5, n / 4, n / 2 - 1, n / 2, n / 2 + 1, 3 * n / 4, n - 1] {
-                let want = direct_bin(&input, k, sign);
-                assert!((x[k] - want).abs() < 1e-9 * n as f64, "n={n} k={k} {fft_dir:?}");
+    for &kernel in Kernel::ALL {
+        for n in [1usize << 12, 1 << 13, 1 << 14] {
+            let input = signal(n);
+            for (fft_dir, sign) in [(Direction::Forward, -1.0), (Direction::Inverse, 1.0)] {
+                let mut x = input.clone();
+                let fft = ComplexFft::with_kernel(n, kernel).unwrap();
+                let mut scratch = vec![Complex::default(); fft.scratch_len()];
+                fft.process(&mut x, &mut scratch, fft_dir, Scale::None).unwrap();
+                // a spread of bins, including the first, the last and the middle ones
+                for k in [0, 1, 2, 3, 5, n / 4, n / 2 - 1, n / 2, n / 2 + 1, 3 * n / 4, n - 1] {
+                    let want = direct_bin(&input, k, sign);
+                    assert!(
+                        (x[k] - want).abs() < 1e-9 * n as f64,
+                        "{kernel:?} n={n} k={k} {fft_dir:?}"
+                    );
+                }
             }
+        }
+    }
+}
+
+/// Every algorithm class matches the direct sum in every bin, both directions, for the lengths 1
+/// to 2^11 (all the last-stage cases of every class).
+#[test]
+fn every_kernel_matches_the_direct_sum() {
+    for &kernel in Kernel::ALL {
+        for log_n in 0..=11 {
+            let n = 1usize << log_n;
+            let input = signal(n);
+            for (dir, sign) in [(Direction::Forward, -1.0), (Direction::Inverse, 1.0)] {
+                let fft = ComplexFft::with_kernel(n, kernel).unwrap();
+                assert_eq!(fft.kernel(), kernel);
+                let mut x = input.clone();
+                let mut scratch = vec![Complex::default(); fft.scratch_len()];
+                fft.process(&mut x, &mut scratch, dir, Scale::None).unwrap();
+                for (k, got) in x.iter().enumerate() {
+                    let want = direct_bin(&input, k, sign);
+                    assert!(
+                        (*got - want).abs() < 1e-9 * n as f64,
+                        "{kernel:?} n={n} k={k} {dir:?}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn new_uses_the_default_kernel_and_with_kernel_refuses_bad_lengths() {
+    for log_n in 0..=12 {
+        let n = 1usize << log_n;
+        assert_eq!(ComplexFft::new(n).unwrap().kernel(), Kernel::default_for(n));
+    }
+    for &kernel in Kernel::ALL {
+        for n in [0, 3, 12, 1000] {
+            assert_eq!(ComplexFft::with_kernel(n, kernel).unwrap_err(), Error::UnsupportedLength(n));
         }
     }
 }

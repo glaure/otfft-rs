@@ -1,11 +1,12 @@
-//! Complex forward transform, `otfft-rs` against RustFFT, power-of-two lengths.
+//! Complex forward transform, every algorithm class of `otfft-rs` against RustFFT, power-of-two
+//! lengths.
 //!
 //! Both transforms work in place with a caller-owned scratch buffer and no scaling, so the
 //! timings compare the transform and not the allocation. `realfft` joins in with the real FFT
 //! (README step 5).
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use otfft_rs::{ComplexFft, Direction, Scale};
+use otfft_rs::{ComplexFft, Direction, Kernel, Scale};
 use rustfft::{FftPlanner, num_complex::Complex64};
 use std::hint::black_box;
 
@@ -15,20 +16,23 @@ fn input(n: usize) -> Vec<(f64, f64)> {
 
 fn bench(c: &mut Criterion) {
     let mut group = c.benchmark_group("complex_fwd");
-    for log2n in [4, 6, 8, 10, 11, 12, 14, 16, 17, 18, 20] {
+    for log2n in [4, 5, 6, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20] {
         let n = 1usize << log2n;
         group.throughput(Throughput::Elements(n as u64));
         let data = input(n);
 
-        let fft = ComplexFft::new(n).unwrap();
-        let mut x: Vec<_> = data.iter().map(|&(re, im)| otfft_rs::Complex::new(re, im)).collect();
-        let mut scratch = vec![otfft_rs::Complex::default(); fft.scratch_len()];
-        group.bench_with_input(BenchmarkId::new("otfft-rs", n), &n, |b, _| {
-            b.iter(|| {
-                fft.process(black_box(&mut x), &mut scratch, Direction::Forward, Scale::None)
-                    .unwrap()
-            })
-        });
+        for &kernel in Kernel::ALL {
+            let fft = ComplexFft::with_kernel(n, kernel).unwrap();
+            let mut x: Vec<_> =
+                data.iter().map(|&(re, im)| otfft_rs::Complex::new(re, im)).collect();
+            let mut scratch = vec![otfft_rs::Complex::default(); fft.scratch_len()];
+            group.bench_with_input(BenchmarkId::new(format!("otfft-rs-{kernel:?}"), n), &n, |b, _| {
+                b.iter(|| {
+                    fft.process(black_box(&mut x), &mut scratch, Direction::Forward, Scale::None)
+                        .unwrap()
+                })
+            });
+        }
 
         let plan = FftPlanner::<f64>::new().plan_fft_forward(n);
         let mut y: Vec<_> = data.iter().map(|&(re, im)| Complex64::new(re, im)).collect();

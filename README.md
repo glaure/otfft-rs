@@ -9,7 +9,7 @@ The C++ fork and its measurements are the reference: <https://github.com/DEWETRO
 
 ## Status
 
-A scalar Stockham FFT for power-of-two lengths (radix-8 stages, step 3 in progress), with the names
+A scalar Stockham FFT for power-of-two lengths (classes `Dif4` and `Dif8`, step 3 in progress), with the names
 and scales of the C++ library (`fwd` divides by N, `inv` does not). It is the correctness baseline,
 not yet fast: 2.3x to 5.5x slower than RustFFT (`cargo bench`, `docs/benchmarks.md` B3).
 
@@ -39,7 +39,10 @@ inputs.
    (`cargo bench --features fftw --bench vs_fftw`, B5, D11); `realfft` joins with step 5.
    Baseline: 4x to 14x slower than RustFFT ([docs/benchmarks.md](docs/benchmarks.md), B1).
 3. [ ] Radix-4, 8 and 16 DIF/DIT kernels (the C++ classes DIF4 to DIT16), a table of the fastest
-   class per length like `ffttune` produces. Done: radix-4 and radix-8 DIF stages (D8, D9, B2, B3). Next: radix 16.
+   class per length like `ffttune` produces. The best class differs between CPUs (C++
+   benchmarks: Intel, Ryzen 9 9950X, Ryzen 9 3900X), so every class stays, even one that is slower
+   on the development machine (D12), and step 8 chooses. Done: `Dif4` and `Dif8` (D8, D9, D12).
+   Next: `Dif16`, then the DIT classes.
 4. [ ] SIMD: AVX2 and SSE2 with run-time selection (`std::arch`, `is_x86_feature_detected!`),
    scalar fallback; later NEON.
 5. [ ] Real FFT and DCT-II (C++: `RealFFT`, `RealDCT`).
