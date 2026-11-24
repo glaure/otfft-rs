@@ -192,13 +192,13 @@ fn complex_has_the_layout_of_the_cpp_complex_t() {
     assert_eq!(raw, [1.5, -2.5]); // Re first, then Im
 }
 
-/// The three remainders of log2(N) modulo 3 for the radix-8 class (radix-8 stages only at 2^12,
-/// plus one radix-2 stage at 2^13, plus one radix-4 stage at 2^14), and both parities for the
-/// radix-4 class. Every algorithm class, both directions.
+/// The remainders of log2(N) for every class: modulo 4 for the radix-16 class (radix-16 stages
+/// only at 2^12, plus one radix-2 stage at 2^13, one radix-4 stage at 2^14, one radix-8 stage at
+/// 2^15), modulo 3 for the radix-8 class, both parities for the radix-4 class. Both directions.
 #[test]
 fn large_lengths_of_every_log2_remainder_match_the_direct_sum() {
     for &kernel in Kernel::ALL {
-        for n in [1usize << 12, 1 << 13, 1 << 14] {
+        for n in [1usize << 12, 1 << 13, 1 << 14, 1 << 15] {
             let input = signal(n);
             for (fft_dir, sign) in [(Direction::Forward, -1.0), (Direction::Inverse, 1.0)] {
                 let mut x = input.clone();
