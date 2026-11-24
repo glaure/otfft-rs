@@ -86,7 +86,7 @@ D9: radix-8 stages in tiles, radix 4 or 2 to finish
     the current length is at least 8, then one radix-4 stage (length 4) or radix-2 stage (length
     2). The stage works on tiles of 8 butterflies: for each of the four pairs of streams `j` and
     `j + 4` it reads the tile, forms the sum and the twiddled difference, and only then does the
-    two radix-4 butterflies and the stores. The radix-4 stage of D8 remains for the last stage.
+    two radix-4 butterflies and the stores. The radix-4 stage of D8 remains for the last stage (D10).
 *   **Why:** README step 3, second kernel. Measured in B3: 23% to 54% less time than radix 4 at
     every length from 16 to 2^20.
 *   **Rejected:** the direct radix-8 stage (v1: eight streams read in one step); it was no faster
@@ -96,3 +96,17 @@ D9: radix-8 stages in tiles, radix 4 or 2 to finish
     butterfly instead of once per `p`. The C++ `DIF8` is an AVX implementation; this is its scalar
     form. Radix 16, DIT variants and the table of the fastest class per length are separate
     commits.
+
+D10: the last radix-4 stage has no twiddles and no tiling
+----------------------------------------------------------
+*   **What:** with radix-8 stages first (D9), the radix-4 stage only runs as the last stage of a
+    transform with log2(N) mod 3 = 2, where `n = 4`, `p = 0` and every twiddle factor is 1.
+    `radix4_stage` is replaced by `radix4_last`, which does the four-point butterfly without the
+    three multiplications. The radix-2 stage was already without twiddles.
+*   **Why:** the multiplications were by 1. B4: 4% to 7% less time at N = 256, 2048, 16384 and
+    131072; no change at 2^20.
+*   **Rejected:** tiling this stage as in D9 (B4: no gain over the plain version, 2% to 4% slower at
+    2^20). The general radix-4 stage with twiddles is not kept: nothing calls it.
+*   **Limit:** the gain is small and close to the noise of the machine (1% to 4%); it was seen at
+    four of four affected lengths below 2^20. If a radix-4 stage with twiddles is needed again (DIT
+    kernels, or a table that picks radix 4 in the middle of a run), it comes back with that change.

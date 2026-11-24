@@ -89,3 +89,35 @@ N = 4096. The tiled stage takes 23% to 54% less time than radix 4 at every lengt
 tiling does more than avoid cache-set conflicts; the cause of the slow v1 was not isolated
 (candidates: the streams `N/8` apart share cache sets, the arrays and closures of v1, and bounds
 checks). The same tiling may help the radix-4 stage; not tried.
+
+B4: the last radix-4 stage without twiddles, and tiling it
+-----------------------------------------------------------
+*   **Machine, compiler, crates, command:** as B3 (`--save-baseline <name>`, one pass per variant
+    in the same session, load average under 2). N = 2^11 and 2^17 were added to the benchmark.
+*   **Variants:** `main` is the code of B3. `A` replaces the general radix-4 stage by a last-stage
+    function without twiddle multiplications (the stage only runs with `n = 4`, where `p = 0` and
+    all three twiddles are 1). `B` is A with tiles of 8, reading the four input streams before
+    writing the four output streams (as the radix-8 stage of D9).
+*   **Last stage** is the stage that ends the run: `r4` for log2(N) mod 3 = 2, `r2` for 1, none
+    for 0. Only the `r4` rows are changed by A and B; the other rows show the noise.
+
+| N         | last | main      | A         | B         | A / main | B / main | B / A |
+|----------:|:----:|----------:|----------:|----------:|---------:|---------:|------:|
+| 16        | r2   | 87.6 ns   | 68.9 ns   | 68.2 ns   | 0.79     | 0.78     | 0.99  |
+| 64        | none | 346 ns    | 338 ns    | 330 ns    | 0.98     | 0.96     | 0.98  |
+| 256       | r4   | 1.60 µs   | 1.51 µs   | 1.55 µs   | 0.95     | 0.97     | 1.02  |
+| 1024      | r2   | 7.88 µs   | 7.79 µs   | 7.76 µs   | 0.99     | 0.99     | 1.00  |
+| 2048      | r4   | 17.0 µs   | 15.9 µs   | 16.4 µs   | 0.93     | 0.96     | 1.03  |
+| 4096      | none | 39.5 µs   | 39.0 µs   | 38.6 µs   | 0.99     | 0.98     | 0.99  |
+| 16384     | r4   | 195 µs    | 181 µs    | 179 µs    | 0.93     | 0.92     | 0.99  |
+| 65536     | r2   | 868 µs    | 852 µs    | 848 µs    | 0.98     | 0.98     | 1.00  |
+| 131072    | r4   | 1.83 ms   | 1.76 ms   | 1.78 ms   | 0.96     | 0.98     | 1.01  |
+| 262144    | none | 4.06 ms   | 4.01 ms   | 3.93 ms   | 0.99     | 0.97     | 0.98  |
+| 1048576   | r4   | 22.8 ms   | 22.9 ms   | 23.6 ms   | 1.01     | 1.04     | 1.03  |
+
+**Reading:** the rows that A and B do not change (r2, none) move by 1% to 4% between passes, and
+N = 16 by 21%, so differences of a few percent are noise. A takes 4% to 7% less time than main at
+N = 256, 2048, 16384 and 131072 (the unchanged rows move 1% to 4%), and nothing at N = 2^20. B is
+no better than A (0.98 to 1.03 of A) and slower at 2^20. Tiling does not help a stage with four
+streams, where it helped the radix-8 stage with eight (B3); that fits the cache-set explanation
+for B3 but does not prove it, since B3 also gained at N = 16.
