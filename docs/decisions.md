@@ -66,8 +66,8 @@ D7: benchmark against RustFFT with criterion
     no Rust baseline); including scaling in the timing (RustFFT does not scale).
 *   **Limit:** `realfft` is unused until the real FFT (README step 5). Short runs are noisy.
 
-D8: radix-4 stages, with a radix-2 stage for odd log2(N)
---------------------------------------------------------
+D8: radix-4 stages, with a radix-2 stage for odd log2(N) (stage order replaced by D9)
+---------------------------------------------------------------------------------------
 *   **What:** the transform runs radix-4 Stockham DIF stages (C++ class DIF4, written in scalar
     form) and ends with one radix-2 stage when log2(N) is odd. The twiddle table has N entries
     (it was N/2) because the radix-4 stage reads `exp(-2 pi i * 3p / n)`, up to index 3N/4. The
@@ -79,3 +79,20 @@ D8: radix-4 stages, with a radix-2 stage for odd log2(N)
     where radix 2 wins; the per-length table of step 3 comes with radix 8 and 16).
 *   **Limit:** the C++ `DIF4` is an AVX implementation; this is its scalar form, not a port of the
     SIMD code (step 4). Radix 8, 16 and DIT variants are separate commits.
+
+D9: radix-8 stages in tiles, radix 4 or 2 to finish
+----------------------------------------------------
+*   **What:** the transform runs radix-8 Stockham DIF stages (C++ class DIF8, scalar form) while
+    the current length is at least 8, then one radix-4 stage (length 4) or radix-2 stage (length
+    2). The stage works on tiles of 8 butterflies: for each of the four pairs of streams `j` and
+    `j + 4` it reads the tile, forms the sum and the twiddled difference, and only then does the
+    two radix-4 butterflies and the stores. The radix-4 stage of D8 remains for the last stage.
+*   **Why:** README step 3, second kernel. Measured in B3: 23% to 54% less time than radix 4 at
+    every length from 16 to 2^20.
+*   **Rejected:** the direct radix-8 stage (v1: eight streams read in one step); it was no faster
+    than radix 4 and up to 21% slower from N = 4096 (B3). Kept as a rule: a new kernel is
+    measured against the previous one on the same machine in the same session before it is used.
+*   **Limit:** the tile size 8 and the layout were not tuned; the twiddles are loaded for each
+    butterfly instead of once per `p`. The C++ `DIF8` is an AVX implementation; this is its scalar
+    form. Radix 16, DIT variants and the table of the fastest class per length are separate
+    commits.

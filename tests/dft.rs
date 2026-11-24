@@ -192,10 +192,11 @@ fn complex_has_the_layout_of_the_cpp_complex_t() {
     assert_eq!(raw, [1.5, -2.5]); // Re first, then Im
 }
 
-/// Both parities of log2(N): radix-4 stages only, and radix-4 stages plus one radix-2 stage.
+/// The three remainders of log2(N) modulo 3: radix-8 stages only (2^12), plus one radix-2 stage
+/// (2^13), plus one radix-4 stage (2^14).
 #[test]
-fn large_even_and_odd_log_lengths_match_the_direct_sum() {
-    for n in [1usize << 12, 1 << 13] {
+fn large_lengths_of_every_log2_remainder_match_the_direct_sum() {
+    for n in [1usize << 12, 1 << 13, 1 << 14] {
         let input = signal(n);
         for (fft_dir, sign) in [(Direction::Forward, -1.0), (Direction::Inverse, 1.0)] {
             let mut x = input.clone();
