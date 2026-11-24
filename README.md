@@ -1,0 +1,53 @@
+# otfft-rs
+
+A Rust port of [OTFFT](http://wwwa.pikara.ne.jp/okojisan/otfft-en/download.html) by OK Ojisan
+(Takuya OKAHISA), based on the Stockham autosort FFT. Private project (`publish = false`). MIT
+license, with the notices of the original author and of the DEWETRON fork (see `LICENSE`).
+
+The C++ fork and its measurements are the reference: <https://github.com/DEWETRON/otfft>
+(`docs/benchmarks.md` has the speeds to compare with, `docs/spec/` the behaviour rules).
+
+## Status
+
+Step 0 is done: a scalar radix-2 Stockham FFT for power-of-two lengths, with the names and scales
+of the C++ library (`fwd` divides by N, `inv` does not). It is the correctness baseline, not yet
+fast.
+
+```rust
+use otfft_rs::{Complex, ComplexFft};
+
+let fft = ComplexFft::new(1024).unwrap();
+let mut x = vec![Complex::new(1.0, 0.0); 1024];
+let mut scratch = vec![Complex::default(); fft.scratch_len()];
+fft.process(&mut x, &mut scratch, otfft_rs::Direction::Forward, otfft_rs::Scale::Length).unwrap();
+```
+
+`cargo test` runs the checks against the direct DFT sum, round trips, all scales and the refused
+inputs.
+
+## Documentation
+
+- [docs/spec/](docs/spec/README.md): what the crate does, rule by rule, with status tags and the tests
+- [docs/decisions.md](docs/decisions.md): why it is built this way
+
+## Plan
+
+1. [x] Radix-2 Stockham, tests against the direct sum.
+2. [ ] Benchmark against RustFFT and `realfft` (criterion, as dev-dependencies only).
+3. [ ] Radix-4, 8 and 16 DIF/DIT kernels (the C++ classes DIF4 to DIT16), a table of the fastest
+   class per length like `ffttune` produces.
+4. [ ] SIMD: AVX2 and SSE2 with run-time selection (`std::arch`, `is_x86_feature_detected!`),
+   scalar fallback; later NEON.
+5. [ ] Real FFT and DCT-II (C++: `RealFFT`, `RealDCT`).
+6. [ ] Other lengths: mixed radix 3, 5, 7 and Bluestein for large prime factors (C++ roadmap R1.4,
+   R1.5; keep the prime-length bug of issue #16 out: use `usize`/`u64` for index products).
+7. [ ] Threads (rayon, optional feature), thresholds at the measured break-even (C++ D17).
+
+## Design notes
+
+- A plan holds only the twiddle factors and is immutable, so it can be shared between threads. The
+  scratch buffer comes from the caller (`process`); the `*_alloc` methods allocate one per call.
+  The C++ library keeps the buffer in the object and says "one object per thread".
+- `Complex` is `#[repr(C)]` with the layout of `OTFFT::complex_t`, so data can be exchanged with
+  the C++ library without copying (for comparing results across the two).
+- No dependencies in the library.

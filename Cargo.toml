@@ -1,0 +1,12 @@
+[package]
+name = "otfft-rs"
+version = "0.0.1"
+edition = "2024"
+description = "Stockham FFT after OTFFT by OK Ojisan (private project)"
+license = "MIT"
+# private project: cargo publish is refused
+publish = false
+
+[dependencies]
+
+[dev-dependencies]
