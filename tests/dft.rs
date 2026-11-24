@@ -191,3 +191,22 @@ fn complex_has_the_layout_of_the_cpp_complex_t() {
     let raw: [f64; 2] = unsafe { std::mem::transmute(z) };
     assert_eq!(raw, [1.5, -2.5]); // Re first, then Im
 }
+
+/// Both parities of log2(N): radix-4 stages only, and radix-4 stages plus one radix-2 stage.
+#[test]
+fn large_even_and_odd_log_lengths_match_the_direct_sum() {
+    for n in [1usize << 12, 1 << 13] {
+        let input = signal(n);
+        for (fft_dir, sign) in [(Direction::Forward, -1.0), (Direction::Inverse, 1.0)] {
+            let mut x = input.clone();
+            let fft = ComplexFft::new(n).unwrap();
+            let mut scratch = vec![Complex::default(); fft.scratch_len()];
+            fft.process(&mut x, &mut scratch, fft_dir, Scale::None).unwrap();
+            // a spread of bins, including the first, the last and the middle ones
+            for k in [0, 1, 2, 3, 5, n / 4, n / 2 - 1, n / 2, n / 2 + 1, 3 * n / 4, n - 1] {
+                let want = direct_bin(&input, k, sign);
+                assert!((x[k] - want).abs() < 1e-9 * n as f64, "n={n} k={k} {fft_dir:?}");
+            }
+        }
+    }
+}

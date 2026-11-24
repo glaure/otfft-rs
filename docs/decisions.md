@@ -39,8 +39,8 @@ D4: a private crate
     author and the fork kept.
 *   **Why:** the project is private. The license of OTFFT (MIT) requires the notices to stay.
 
-D5: scalar radix 2 first
-------------------------
+D5: scalar radix 2 first (stages replaced by D8)
+------------------------------------------------
 *   **What:** step 0 is a plain radix-2 Stockham with a twiddle table, power-of-two lengths only.
 *   **Why:** a correct and tested baseline to measure the radix-4/8/16 and SIMD steps against, and a
     harness (direct-sum tests) that every later kernel must pass.
@@ -65,3 +65,17 @@ D7: benchmark against RustFFT with criterion
 *   **Rejected:** comparing only with the C++ library (needs it built on the same machine, and gives
     no Rust baseline); including scaling in the timing (RustFFT does not scale).
 *   **Limit:** `realfft` is unused until the real FFT (README step 5). Short runs are noisy.
+
+D8: radix-4 stages, with a radix-2 stage for odd log2(N)
+--------------------------------------------------------
+*   **What:** the transform runs radix-4 Stockham DIF stages (C++ class DIF4, written in scalar
+    form) and ends with one radix-2 stage when log2(N) is odd. The twiddle table has N entries
+    (it was N/2) because the radix-4 stage reads `exp(-2 pi i * 3p / n)`, up to index 3N/4. The
+    radix-2 stage is no longer a general stage: it only runs with n = 2, where the twiddle is 1.
+*   **Why:** README step 3, first kernel: half the passes over the data. Measured in B2: 15% to
+    50% less time in absolute terms; not yet a clear gain over RustFFT below N = 2^20.
+*   **Rejected:** a table of N/2 entries with a sign flip for indices above N/2 (a branch per
+    twiddle for 4 KiB to 8 MiB saved); a runtime choice between radix 2 and 4 (no measured case
+    where radix 2 wins; the per-length table of step 3 comes with radix 8 and 16).
+*   **Limit:** the C++ `DIF4` is an AVX implementation; this is its scalar form, not a port of the
+    SIMD code (step 4). Radix 8, 16 and DIT variants are separate commits.
