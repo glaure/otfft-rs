@@ -2,7 +2,7 @@
 //!
 //! Scalar Stockham autosort FFT for power-of-two lengths, in several algorithm classes (`Kernel`):
 //! radix-4 stages (`Dif4`), radix-8 stages in tiles (`Dif8`, the default) and radix-16 stages in
-//! tiles (`Dif16`), decimation in time (`Dit4`, `Dit8`), each ending with a smaller stage when `log2(N)` does not fit (step 3). It is the correctness baseline that the
+//! tiles (`Dif16`), decimation in time (`Dit4`, `Dit8`, `Dit16`), each ending with a smaller stage when `log2(N)` does not fit (step 3). It is the correctness baseline that the
 //! SIMD versions are measured against.
 //!
 //! The names and scales follow the C++ library (`fwd` divides by N, `inv` does not):
@@ -142,11 +142,14 @@ pub enum Kernel {
     /// Decimation in time with radix-8 stages; one radix-2 or radix-4 stage first when `log2(N)`
     /// is not a multiple of 3.
     Dit8,
+    /// Decimation in time with radix-16 stages; one radix-2, radix-4 or radix-8 stage first when
+    /// `log2(N)` is not a multiple of 4.
+    Dit16,
 }
 
 impl Kernel {
     /// Every class, in the order of the radix.
-    pub const ALL: &'static [Kernel] = &[Kernel::Dif4, Kernel::Dif8, Kernel::Dif16, Kernel::Dit4, Kernel::Dit8];
+    pub const ALL: &'static [Kernel] = &[Kernel::Dif4, Kernel::Dif8, Kernel::Dif16, Kernel::Dit4, Kernel::Dit8, Kernel::Dit16];
 
     /// The class that `ComplexFft::new` picks for length `n`: the fastest one measured on the
     /// development machine (`docs/benchmarks.md`), until the tuning of README step 8 exists.
@@ -159,7 +162,7 @@ impl Kernel {
         match self {
             Kernel::Dif4 | Kernel::Dit4 => 4,
             Kernel::Dif8 | Kernel::Dit8 => 8,
-            Kernel::Dif16 => 16,
+            Kernel::Dif16 | Kernel::Dit16 => 16,
         }
     }
 }
@@ -244,6 +247,9 @@ impl ComplexFft {
         }
         if self.kernel == Kernel::Dit8 {
             return self.stockham_dit8(x, y, inverse);
+        }
+        if self.kernel == Kernel::Dit16 {
+            return self.stockham_dit16(x, y, inverse);
         }
         let radix = self.kernel.radix();
         let mut n = total;
@@ -418,6 +424,107 @@ impl ComplexFft {
                 let b = [d[0], (d[1] + mj(d[1])).scale(r), mj(d[2]), (mj(d[3]) - d[3]).scale(r)];
                 let (even, odd) = (dft4(a), dft4(b));
                 for k in 0..4 {
+                    dst[q + s * (p + 2 * k * m)] = even[k];
+                    dst[q + s * (p + (2 * k + 1) * m)] = odd[k];
+                }
+            }
+        }
+    }
+
+    /// Stockham autosort, decimation in time, radix 16: the transpose of the `Dif16` stages, run
+    /// from the shortest sub-transform (`n` = 2, 4, 8 or 16, by `log2(N) % 4`) up to `n = N`.
+    fn stockham_dit16(&self, x: &mut [Complex], y: &mut [Complex], inverse: bool) {
+        if self.n == 1 {
+            return;
+        }
+        let mut n = match self.n.trailing_zeros() % 4 {
+            0 => 16,
+            1 => 2,
+            2 => 4,
+            _ => 8,
+        };
+        let mut s = self.n / n;
+        let mut in_x = true;
+        while n <= self.n {
+            let (src, dst): (&[Complex], &mut [Complex]) =
+                if in_x { (&*x, &mut *y) } else { (&*y, &mut *x) };
+            match n {
+                2 => {
+                    // the only twiddle factor is 1
+                    for q in 0..s {
+                        let (a, b) = (src[q], src[q + s]);
+                        dst[q] = a + b;
+                        dst[q + s] = a - b;
+                    }
+                }
+                4 => self.radix4_last(src, dst, s, inverse),
+                8 => self.dit8_stage(src, dst, 8, s, inverse),
+                _ => self.dit16_stage(src, dst, n, s, inverse),
+            }
+            in_x = !in_x;
+            n *= 16;
+            s /= 16;
+        }
+        if !in_x {
+            x.copy_from_slice(y);
+        }
+    }
+
+    /// One radix-16 DIT stage: `src` to `dst`, current length `n` (a multiple of 16), stride `s`.
+    /// Input `16p + r` is multiplied by `w^(rp)`, output `p + k n/16` is the 16-point DFT (two
+    /// 8-point DFTs, as in `radix16_stage`). Not tiled (D16). For `n = 16` all twiddles are 1.
+    fn dit16_stage(&self, src: &[Complex], dst: &mut [Complex], n: usize, s: usize, inverse: bool) {
+        const C1: f64 = 0.923_879_532_511_286_7; // cos(pi/8)
+        const S1: f64 = 0.382_683_432_365_089_8; // sin(pi/8)
+        let m = n / 16;
+        let step = self.n / n;
+        let sg = if inverse { 1.0 } else { -1.0 }; // sign of the exponent
+        let r = std::f64::consts::FRAC_1_SQRT_2;
+        // multiplication by -i (forward) or +i (inverse)
+        let mj = |z: Complex| {
+            if inverse { Complex::new(-z.im, z.re) } else { Complex::new(z.im, -z.re) }
+        };
+        // multiplication by `cr + i * sg * ci`
+        let mc = |z: Complex, cr: f64, ci: f64| {
+            let ci = sg * ci;
+            Complex::new(z.re * cr - z.im * ci, z.re * ci + z.im * cr)
+        };
+        let dft4 = |u: [Complex; 4]| {
+            let (e, f) = (u[0] + u[2], u[0] - u[2]);
+            let (g, h) = (u[1] + u[3], mj(u[1] - u[3]));
+            [e + g, f + h, e - g, f - h]
+        };
+        let dft8 = |u: [Complex; 8]| {
+            let a = [u[0] + u[4], u[1] + u[5], u[2] + u[6], u[3] + u[7]];
+            let d = [u[0] - u[4], u[1] - u[5], u[2] - u[6], u[3] - u[7]];
+            let b = [d[0], (d[1] + mj(d[1])).scale(r), mj(d[2]), (mj(d[3]) - d[3]).scale(r)];
+            let (even, odd) = (dft4(a), dft4(b));
+            [even[0], odd[0], even[1], odd[1], even[2], odd[2], even[3], odd[3]]
+        };
+        for p in 0..m {
+            for q in 0..s {
+                let u: [Complex; 16] = std::array::from_fn(|k| {
+                    let w = self.twiddle[k * p * step];
+                    let w = if inverse { w.conj() } else { w };
+                    src[q + s * (16 * p + k)] * w
+                });
+                let a: [Complex; 8] = std::array::from_fn(|j| u[j] + u[j + 8]);
+                let b: [Complex; 8] = std::array::from_fn(|j| {
+                    let d = u[j] - u[j + 8];
+                    // times exp(-+2 pi i j / 16)
+                    match j {
+                        0 => d,
+                        1 => mc(d, C1, S1),
+                        2 => (d + mj(d)).scale(r),
+                        3 => mc(d, S1, C1),
+                        4 => mj(d),
+                        5 => mc(d, -S1, C1),
+                        6 => (mj(d) - d).scale(r),
+                        _ => mc(d, -C1, S1),
+                    }
+                });
+                let (even, odd) = (dft8(a), dft8(b));
+                for k in 0..8 {
                     dst[q + s * (p + 2 * k * m)] = even[k];
                     dst[q + s * (p + (2 * k + 1) * m)] = odd[k];
                 }

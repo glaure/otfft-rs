@@ -45,7 +45,7 @@ Rules
 *   **CFFT-10** `[built]` No `unsafe` code in the transform, and no allocation in `process`.
 *   **CFFT-12** `[done]` The algorithm class is chosen with `ComplexFft::with_kernel(n, Kernel)`;
     `kernel()` returns it. `ComplexFft::new(n)` uses `Kernel::default_for(n)` (`Dif8`). Every
-    class (`Kernel::ALL`: `Dif4`, `Dif8`, `Dif16`, `Dit4`, `Dit8`) gives the result of CFFT-2 and CFFT-3 in every bin, for lengths 1 to
+    class (`Kernel::ALL`: `Dif4`, `Dif8`, `Dif16`, `Dit4`, `Dit8`, `Dit16`) gives the result of CFFT-2 and CFFT-3 in every bin, for lengths 1 to
     2^11, and in a spread of bins up to 2^15; a length that is not a power of two is refused for
     every class. (`every_kernel_matches_the_direct_sum`,
     `large_lengths_of_every_log2_remainder_match_the_direct_sum`,
