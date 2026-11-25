@@ -188,3 +188,18 @@ D14: the Dit4 class (radix-4 decimation in time)
     2.4x slower than `Dif8` on the Ryzen 3900X.
 *   **Limit:** not tiled, so it is not comparable with the tiled `Dif8`; `Dit8` and `Dit16`
     (one per commit) come next. One CPU measured.
+
+
+D15: the Dit8 class (radix-8 decimation in time)
+------------------------------------------------
+*   **What:** `Kernel::Dit8`: Stockham DIT with radix-8 stages (C++ class DIT8), one radix-2 or
+    radix-4 stage first when log2(N) is not a multiple of 3. Each stage is the transpose of the
+    `Dif8` stage with the same `n` and `s`: input `8p + r` is multiplied by `w^(rp)`, then the
+    8-point DFT (two 4-point DFTs, as in `Dif8`) writes output `p + k n/8`. The stages run from
+    `n = 2`, `4` or `8` up to `n = N`; the small first stages reuse the code of `Dit4`. Not the
+    default.
+*   **Why:** D12, every class stays. Measured (B8), it is faster than `Dit4` up to N = 2^14 and
+    mixed above, and slower than `Dif8` at every length but N = 16.
+*   **Limit:** not tiled, unlike `Dif8` (D9): the eight input streams of a DIT stage are `s`
+    elements apart, and the stage reads them one butterfly at a time; the tiling of D9 may explain
+    part of the gap above N = 2^15, but that is not measured. One CPU measured.
