@@ -1,6 +1,6 @@
 //! The FFT against the direct DFT sum, round trips, scales and refused inputs.
 
-use otfft_rs::{Complex, ComplexFft, Direction, Error, Kernel, Scale};
+use otfft_rs::{Isa, Complex, ComplexFft, Direction, Error, Kernel, Scale};
 use std::f64::consts::PI;
 
 /// The same deterministic signal as the C++ tests of the fork.
@@ -255,4 +255,54 @@ fn new_uses_the_default_kernel_and_with_kernel_refuses_bad_lengths() {
             assert_eq!(ComplexFft::with_kernel(n, kernel).unwrap_err(), Error::UnsupportedLength(n));
         }
     }
+}
+
+/// Every instruction set that this CPU has gives the result of the direct sum in every bin, and
+/// the same bits as the scalar stages, for every class, both directions, lengths 1 to 2^11 (the
+/// AVX2 stages need a stride of 2 or more, so the short lengths cover the scalar fallback inside
+/// an AVX2 plan).
+#[test]
+fn every_isa_matches_the_direct_sum_and_the_scalar_bits() {
+    for &kernel in Kernel::ALL {
+        for &isa in Isa::ALL.iter().filter(|i| i.is_available()) {
+            for log_n in 0..=11 {
+                let n = 1usize << log_n;
+                let input = signal(n);
+                for (dir, sign) in [(Direction::Forward, -1.0), (Direction::Inverse, 1.0)] {
+                    let run = |isa| {
+                        let fft = ComplexFft::with_kernel_isa(n, kernel, isa).unwrap();
+                        assert_eq!(fft.isa(), isa);
+                        let mut x = input.clone();
+                        let mut scratch = vec![Complex::default(); fft.scratch_len()];
+                        fft.process(&mut x, &mut scratch, dir, Scale::None).unwrap();
+                        x
+                    };
+                    let (x, scalar) = (run(isa), run(Isa::Scalar));
+                    assert_eq!(x, scalar, "{kernel:?} {isa:?} n={n} {dir:?}: not the scalar bits");
+                    for (k, got) in x.iter().enumerate() {
+                        let want = direct_bin(&input, k, sign);
+                        assert!(
+                            (*got - want).abs() < 1e-9 * n as f64,
+                            "{kernel:?} {isa:?} n={n} k={k} {dir:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn an_unavailable_isa_is_refused_and_detect_is_available() {
+    assert!(Isa::Scalar.is_available());
+    assert!(Isa::detect().is_available());
+    for &isa in Isa::ALL {
+        let plan = ComplexFft::with_kernel_isa(64, Kernel::Dif4, isa);
+        if isa.is_available() {
+            assert_eq!(plan.unwrap().isa(), isa);
+        } else {
+            assert_eq!(plan.unwrap_err(), Error::IsaUnavailable(isa));
+        }
+    }
+    assert_eq!(ComplexFft::new(64).unwrap().isa(), Isa::detect());
 }

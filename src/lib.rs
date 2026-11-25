@@ -25,6 +25,9 @@
 //! assert!((x[3].re - 1.0).abs() < 1e-12);
 //! ```
 
+#[cfg(target_arch = "x86_64")]
+mod avx2;
+
 use std::f64::consts::PI;
 use std::fmt;
 use std::ops::{Add, Mul, Sub};
@@ -89,6 +92,8 @@ pub enum Error {
     UnsupportedLength(usize),
     /// A buffer does not have the length of the plan.
     WrongBufferLength { expected: usize, got: usize },
+    /// The plan asks for an instruction set that this CPU (or this build) does not have.
+    IsaUnavailable(Isa),
 }
 
 impl fmt::Display for Error {
@@ -98,11 +103,42 @@ impl fmt::Display for Error {
             Error::WrongBufferLength { expected, got } => {
                 write!(f, "buffer has {got} elements, the plan is for {expected}")
             }
+            Error::IsaUnavailable(isa) => write!(f, "the instruction set {isa:?} is not available"),
         }
     }
 }
 
 impl std::error::Error for Error {}
+
+/// The instruction set of the stages. `Scalar` is plain Rust and always available; `Avx2` needs the
+/// CPU feature, found at run time (D17). Both give the same result bit for bit; kernels without
+/// an AVX2 form (`Kernel::has_avx2`) run their scalar stages under either.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Isa {
+    Scalar,
+    Avx2,
+}
+
+impl Isa {
+    /// Every instruction set, scalar first.
+    pub const ALL: &'static [Isa] = &[Isa::Scalar, Isa::Avx2];
+
+    /// The best instruction set of this CPU.
+    pub fn detect() -> Isa {
+        if Isa::Avx2.is_available() { Isa::Avx2 } else { Isa::Scalar }
+    }
+
+    /// Whether this CPU can run the stages of this instruction set.
+    pub fn is_available(self) -> bool {
+        match self {
+            Isa::Scalar => true,
+            #[cfg(target_arch = "x86_64")]
+            Isa::Avx2 => std::arch::is_x86_feature_detected!("avx2"),
+            #[cfg(not(target_arch = "x86_64"))]
+            Isa::Avx2 => false,
+        }
+    }
+}
 
 /// Direction of the transform: the sign of the exponent.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -157,6 +193,13 @@ impl Kernel {
         Kernel::Dif8
     }
 
+    /// Whether the class has stages in AVX2 form: `Dif4`, whose radix-4 stages with a stride of 2
+    /// or more are vectorised (D17). The other classes are scalar so far, except that a radix-4
+    /// last stage (`n = 4`) of a `Dif` class is vectorised too.
+    pub fn has_avx2(self) -> bool {
+        self == Kernel::Dif4
+    }
+
     /// Largest radix of the stages.
     fn radix(self) -> usize {
         match self {
@@ -173,6 +216,7 @@ impl Kernel {
 pub struct ComplexFft {
     n: usize,
     kernel: Kernel,
+    isa: Isa,
     /// `exp(-2 pi i k / n)` for `k` in `0..n` (a stage reads up to index `(radix - 1) n / radix`)
     twiddle: Vec<Complex>,
 }
@@ -183,18 +227,32 @@ impl ComplexFft {
         Self::with_kernel(n, Kernel::default_for(n))
     }
 
-    /// Plan for length `n` with the given algorithm class.
+    /// Plan for length `n` with the given algorithm class and the best instruction set of this CPU.
     pub fn with_kernel(n: usize, kernel: Kernel) -> Result<Self, Error> {
+        Self::with_kernel_isa(n, kernel, Isa::detect())
+    }
+
+    /// Plan for length `n` with the given algorithm class and instruction set; `IsaUnavailable`
+    /// if this CPU lacks it.
+    pub fn with_kernel_isa(n: usize, kernel: Kernel, isa: Isa) -> Result<Self, Error> {
+        if !isa.is_available() {
+            return Err(Error::IsaUnavailable(isa));
+        }
         if n == 0 || !n.is_power_of_two() {
             return Err(Error::UnsupportedLength(n));
         }
         let twiddle = (0..n).map(|k| Complex::expj(-2.0 * PI * k as f64 / n as f64)).collect();
-        Ok(ComplexFft { n, kernel, twiddle })
+        Ok(ComplexFft { n, kernel, isa, twiddle })
     }
 
     /// The algorithm class of this plan.
     pub fn kernel(&self) -> Kernel {
         self.kernel
+    }
+
+    /// The instruction set of this plan.
+    pub fn isa(&self) -> Isa {
+        self.isa
     }
 
     pub fn len(&self) -> usize {
@@ -267,11 +325,11 @@ impl ComplexFft {
                 n /= 8;
                 s *= 8;
             } else if n >= 8 {
-                self.radix4_stage(src, dst, n, s, inverse);
+                self.radix4_stage_isa(src, dst, n, s, inverse);
                 n /= 4;
                 s *= 4;
             } else if n == 4 {
-                self.radix4_last(src, dst, s, inverse);
+                self.radix4_last_isa(src, dst, s, inverse);
                 n = 1;
             } else {
                 // n == 2: the only twiddle factor is 1
@@ -665,6 +723,26 @@ impl ComplexFft {
                 }
             }
         }
+    }
+
+    /// `radix4_stage` in the instruction set of the plan, when it has a form for this stride.
+    fn radix4_stage_isa(&self, src: &[Complex], dst: &mut [Complex], n: usize, s: usize, inverse: bool) {
+        #[cfg(target_arch = "x86_64")]
+        if self.isa == Isa::Avx2 && s >= 2 {
+            // SAFETY: a plan has `Isa::Avx2` only if `with_kernel_isa` found the CPU feature.
+            return unsafe { avx2::radix4_stage(src, dst, &self.twiddle, n, s, inverse) };
+        }
+        self.radix4_stage(src, dst, n, s, inverse);
+    }
+
+    /// `radix4_last` in the instruction set of the plan.
+    fn radix4_last_isa(&self, src: &[Complex], dst: &mut [Complex], s: usize, inverse: bool) {
+        #[cfg(target_arch = "x86_64")]
+        if self.isa == Isa::Avx2 && s >= 2 {
+            // SAFETY: a plan has `Isa::Avx2` only if `with_kernel_isa` found the CPU feature.
+            return unsafe { avx2::radix4_last(src, dst, s, inverse) };
+        }
+        self.radix4_last(src, dst, s, inverse);
     }
 
     /// One radix-4 DIF stage of the Stockham FFT with twiddles: `src` to `dst`, current length

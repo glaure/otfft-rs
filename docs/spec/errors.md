@@ -11,6 +11,9 @@ Rules
     `planned.md`). (`refuses_lengths_and_buffers_it_cannot_handle`)
 *   **ERR-2** `[done]` `process` returns `Error::WrongBufferLength { expected, got }` if `x` or the
     scratch buffer does not have exactly `len()` elements. (`refuses_lengths_and_buffers_it_cannot_handle`)
+*   **ERR-6** `[done]` `ComplexFft::with_kernel_isa` returns `Error::IsaUnavailable(isa)` for an
+    instruction set that the CPU (or the build target) does not have; it is never selected by
+    `new`. (`an_unavailable_isa_is_refused_and_detect_is_available`)
 *   **ERR-3** `[done]` A refused call leaves `x` unchanged. (`a_refused_call_leaves_the_data_unchanged`)
 *   **ERR-4** `[built]` `Error` implements `Display` and `std::error::Error`.
 *   **ERR-5** `[built]` The `*_alloc` methods allocate their own scratch buffer and so cannot hit a
