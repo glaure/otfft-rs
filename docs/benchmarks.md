@@ -312,3 +312,35 @@ B9: the Dit16 class next to Dif8, Dif16 and Dit8
 most lengths within the 5% noise. Against `Dif8` it wins only at N = 64 (0.93) and ties at
 N = 16, so `Dif8` stays the fastest class on this CPU. Nothing here says what the order is on
 another CPU.
+
+
+B10: AVX2 `Dif4` next to scalar `Dif4` and `Dif8`
+----------------------------------------------
+*   **Machine, compiler, crates:** as B1 (Ryzen 9 3900X, rustc 1.100.0, rustfft 6.4.1). Load
+    average 1.1 to 1.4 during the run (a single pass, so noise of about 5% applies, B3, B4).
+*   **Command:** `cargo bench --bench complex_fft -- --noplot 'otfft-rs-(Dif4|Dif8)'`, in place, no
+    scaling, no copy, median of criterion's estimate. `Dif4-Avx2` is `Isa::Avx2`, the others are
+    `Isa::Scalar`. No FMA (D17).
+
+| N         | Dif4      | Dif4-Avx2 | Dif8      | Avx2 / Dif4 | Avx2 / Dif8 |
+|----------:|----------:|----------:|----------:|------------:|------------:|
+| 16        | 153 ns    | 144 ns    | 89 ns     | 0.94 | 1.63 |
+| 32        | 349 ns    | 290 ns    | 156 ns    | 0.83 | 1.86 |
+| 64        | 677 ns    | 517 ns    | 370 ns    | 0.76 | 1.40 |
+| 256       | 3.18 µs   | 1.95 µs   | 1.56 µs   | 0.61 | 1.25 |
+| 1024      | 14.41 µs  | 8.27 µs   | 8.31 µs   | 0.57 | 0.99 |
+| 2048      | 30.38 µs  | 17.49 µs  | 16.54 µs  | 0.58 | 1.06 |
+| 4096      | 63.29 µs  | 33.92 µs  | 41.24 µs  | 0.54 | 0.82 |
+| 8192      | 137.63 µs | 73.62 µs  | 89.86 µs  | 0.53 | 0.82 |
+| 16384     | 286.79 µs | 150.10 µs | 189.98 µs | 0.52 | 0.79 |
+| 32768     | 606.01 µs | 316.47 µs | 431.39 µs | 0.52 | 0.73 |
+| 65536     | 1.21 ms   | 614.69 µs | 889.56 µs | 0.51 | 0.69 |
+| 131072    | 2.64 ms   | 1.35 ms   | 1.83 ms   | 0.51 | 0.74 |
+| 262144    | 5.39 ms   | 2.82 ms   | 4.03 ms   | 0.52 | 0.70 |
+| 1048576   | 29.96 ms  | 26.82 ms  | 24.39 ms  | 0.90 | 1.10 |
+
+**Reading:** the AVX2 `Dif4` takes 0.51 to 0.61 of the scalar `Dif4` time from N = 256 to 2^18
+and 0.76 to 0.94 at the shortest lengths and at 2^20 (the first stage is scalar, and 2^20 is
+probably limited by memory; neither is measured). It is faster than the scalar `Dif8` from
+N = 4096 to 2^18 (0.69 to 0.82) and slower or equal (0.99 to 1.86) from N = 16 to 2048 and at 2^20 (1.10). Nothing here says what
+the order is on another CPU.

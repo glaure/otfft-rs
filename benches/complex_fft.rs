@@ -6,7 +6,7 @@
 //! (README step 5).
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use otfft_rs::{ComplexFft, Direction, Kernel, Scale};
+use otfft_rs::{ComplexFft, Direction, Isa, Kernel, Scale};
 use rustfft::{FftPlanner, num_complex::Complex64};
 use std::hint::black_box;
 
@@ -21,17 +21,29 @@ fn bench(c: &mut Criterion) {
         group.throughput(Throughput::Elements(n as u64));
         let data = input(n);
 
+        // Scalar stages for every class, so the numbers of B1 to B9 stay comparable, and the AVX2
+        // stages (named `-Avx2`) for the classes that have them.
         for &kernel in Kernel::ALL {
-            let fft = ComplexFft::with_kernel(n, kernel).unwrap();
-            let mut x: Vec<_> =
-                data.iter().map(|&(re, im)| otfft_rs::Complex::new(re, im)).collect();
-            let mut scratch = vec![otfft_rs::Complex::default(); fft.scratch_len()];
-            group.bench_with_input(BenchmarkId::new(format!("otfft-rs-{kernel:?}"), n), &n, |b, _| {
-                b.iter(|| {
-                    fft.process(black_box(&mut x), &mut scratch, Direction::Forward, Scale::None)
-                        .unwrap()
-                })
-            });
+            for &isa in Isa::ALL {
+                if !isa.is_available() || (isa != Isa::Scalar && !kernel.has_avx2()) {
+                    continue;
+                }
+                let fft = ComplexFft::with_kernel_isa(n, kernel, isa).unwrap();
+                let mut x: Vec<_> =
+                    data.iter().map(|&(re, im)| otfft_rs::Complex::new(re, im)).collect();
+                let mut scratch = vec![otfft_rs::Complex::default(); fft.scratch_len()];
+                let name = if isa == Isa::Scalar {
+                    format!("otfft-rs-{kernel:?}")
+                } else {
+                    format!("otfft-rs-{kernel:?}-{isa:?}")
+                };
+                group.bench_with_input(BenchmarkId::new(name, n), &n, |b, _| {
+                    b.iter(|| {
+                        fft.process(black_box(&mut x), &mut scratch, Direction::Forward, Scale::None)
+                            .unwrap()
+                    })
+                });
+            }
         }
 
         let plan = FftPlanner::<f64>::new().plan_fft_forward(n);

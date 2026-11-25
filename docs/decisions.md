@@ -217,3 +217,23 @@ D16: the Dit16 class (radix-16 decimation in time)
     and slower or equal elsewhere, and it is not faster than `Dif8` at any length but N = 64.
 *   **Limit:** not tiled, unlike `Dif16` (D13). This completes the classes of README step 3;
     the choice among them is step 8. One CPU measured.
+
+
+D17: instruction sets (`Isa`) and the AVX2 stages of Dif4
+---------------------------------------------------------
+*   **What:** `Isa::{Scalar, Avx2}`, chosen per plan: `with_kernel_isa(n, kernel, isa)`, with
+    `Isa::detect()` (`is_x86_feature_detected!("avx2")`) as the default of `new` and `with_kernel`.
+    The AVX2 code is in `src/avx2.rs`, the only place with `unsafe`. A plan has `Isa::Avx2` only
+    after the run-time check, so the call into the `target_feature` functions is sound; each
+    function asserts its buffer lengths before it uses raw pointers (AGENTS rule 4). First
+    kernel: the radix-4 stages of `Dif4` for a stride `s` of 2 or more (one `__m256d` is two
+    `Complex`; the twiddle factor is the same for both) and the `n = 4` last stage. The first stage
+    (`s = 1`) stays scalar.
+*   **Why:** README step 4. The instruction set is a second axis next to the class (D12): the best
+    class may differ per ISA, which is for step 8 to measure. No fused multiply-add and the same
+    order of operations, so the result equals the scalar one bit for bit, which the tests check;
+    FMA would be faster but would break that, and can come as its own decision.
+*   **Measured (B10):** the AVX2 `Dif4` takes 0.51 to 0.94 of the scalar `Dif4` time and is faster
+    than scalar `Dif8` from N = 4096 to 2^18.
+*   **Limit:** only `Dif4` (and the radix-4 last stage of the other `Dif` classes); the other classes,
+    SSE2, NEON and the `s = 1` stage are open. One CPU measured.
