@@ -44,8 +44,8 @@ inputs.
    on the development machine (D12), and step 8 chooses. Done: `Dif4`, `Dif8`, `Dif16`, `Dit4`, `Dit8` and `Dit16` (D8, D9, D12, D13, D14, D15, D16; on the
    Ryzen 3900X `Dif8` is fastest at 13 of 14 lengths, B6). The classes of step 3 are done; the table of the fastest class per length is step 8.
 4. [ ] SIMD: AVX2 and SSE2 with run-time selection (`std::arch`, `is_x86_feature_detected!`),
-   scalar fallback; later NEON. Started: the `Isa` choice and the AVX2 stages of `Dif4` (D17, B10;
-   1.6x to 2x as fast as scalar `Dif4` from N = 256 to 2^18); the other classes and SSE2 are next.
+   scalar fallback; later NEON. Started: the `Isa` choice and the AVX2 stages of `Dif4` and `Dif8` (D17, D18, B10, B11;
+   1.6x to 2x as fast as scalar `Dif4` from N = 256 to 2^18, and `Dif8` 1.5x to 2x from N = 64 to 2^18); the other classes and SSE2 are next.
 5. [ ] Real FFT and DCT-II (C++: `RealFFT`, `RealDCT`).
 6. [ ] Other lengths: mixed radix 3, 5, 7 and Bluestein for large prime factors (C++ roadmap R1.4,
    R1.5; keep the prime-length bug of issue #16 out: use `usize`/`u64` for index products).

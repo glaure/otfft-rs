@@ -132,3 +132,83 @@ pub(crate) unsafe fn radix4_last(src: &[Complex], dst: &mut [Complex], s: usize,
         }
     }
 }
+
+/// Multiplication of both values of `z` by the real `k`, as `Complex::scale`.
+#[inline]
+#[target_feature(enable = "avx2")]
+fn scale(z: __m256d, k: __m256d) -> __m256d {
+    _mm256_mul_pd(z, k)
+}
+
+/// The AVX2 form of `ComplexFft::radix8_stage`: current length `n` (at least 8), stride `s`,
+/// with `s` a power of two and at least 2, so that two neighbouring butterflies `t` and `t + 1`
+/// (`t` even) share `p` and the twiddle factors. Same tiles as the scalar stage, in pairs.
+///
+/// # Safety
+/// The CPU must support AVX2.
+#[target_feature(enable = "avx2")]
+pub(crate) unsafe fn radix8_stage(
+    src: &[Complex],
+    dst: &mut [Complex],
+    twiddle: &[Complex],
+    n: usize,
+    s: usize,
+    inverse: bool,
+) {
+    const TILE: usize = 8;
+    let total = twiddle.len(); // the length of the plan
+    assert!(s >= 2 && s.is_power_of_two() && n >= 8 && n * s == total);
+    assert!(src.len() >= total && dst.len() >= total);
+    let step = total / n;
+    let span = total / 8; // distance of the input streams, and number of butterflies; even
+    let shift = s.trailing_zeros();
+    let len = TILE.min(span); // even, divides `span`
+    let (sp, dp) = (src.as_ptr(), dst.as_mut_ptr());
+    let r = _mm256_set1_pd(std::f64::consts::FRAC_1_SQRT_2);
+    let zero = _mm256_setzero_pd();
+    let mut a = [[zero; TILE / 2]; 4];
+    let mut b = [[zero; TILE / 2]; 4];
+    for t0 in (0..span).step_by(len) {
+        for j in 0..4 {
+            for u in 0..len / 2 {
+                // Indices are below `8 * span = total`: `t0 + 2 * u + 1 < span`, `j + 4 < 8`.
+                // SAFETY: in bounds by the assertion on the lengths, see above.
+                let (x, y) = unsafe {
+                    (
+                        load(sp.add(j * span + t0 + 2 * u)),
+                        load(sp.add((j + 4) * span + t0 + 2 * u)),
+                    )
+                };
+                let d = _mm256_sub_pd(x, y);
+                a[j][u] = _mm256_add_pd(x, y);
+                // times exp(-+2 pi i j / 8): 1, (1 -+ i)/sqrt 2, -+i, (-1 -+ i)/sqrt 2
+                b[j][u] = match j {
+                    0 => d,
+                    1 => scale(_mm256_add_pd(d, mul_j(d, inverse)), r),
+                    2 => mul_j(d, inverse),
+                    _ => scale(_mm256_sub_pd(mul_j(d, inverse), d), r),
+                };
+            }
+        }
+        for u in 0..len / 2 {
+            let t = t0 + 2 * u;
+            let (p, q) = (t >> shift, t & (s - 1)); // `q` is even and `q + 1 < s`
+            let even = dft4(a[0][u], a[1][u], a[2][u], a[3][u], inverse);
+            let odd = dft4(b[0][u], b[1][u], b[2][u], b[3][u], inverse);
+            let out = q + s * 8 * p;
+            for k in 0..4 {
+                for (rr, v) in [(2 * k, even[k]), (2 * k + 1, odd[k])] {
+                    let w = twiddle[rr * p * step];
+                    let w = if inverse { w.conj() } else { w };
+                    // SAFETY: `out + s * rr + 1 < s * 8 * (p + 1) <= s * n = total`.
+                    unsafe {
+                        store(
+                            dp.add(out + s * rr),
+                            mul(v, _mm256_set1_pd(w.re), _mm256_set1_pd(w.im)),
+                        )
+                    };
+                }
+            }
+        }
+    }
+}

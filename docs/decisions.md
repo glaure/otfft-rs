@@ -237,3 +237,17 @@ D17: instruction sets (`Isa`) and the AVX2 stages of Dif4
     than scalar `Dif8` from N = 4096 to 2^18.
 *   **Limit:** only `Dif4` (and the radix-4 last stage of the other `Dif` classes); the other classes,
     SSE2, NEON and the `s = 1` stage are open. One CPU measured.
+
+
+D18: the AVX2 stages of Dif8
+----------------------------
+*   **What:** `avx2::radix8_stage` for a stride `s` of 2 or more, with the same tiles as the scalar
+    stage (D9), in pairs: the butterflies `t` and `t + 1` (`t` even) share `p` because `s` is even,
+    so one `__m256d` holds both, and the twiddle factor of an output is the same for both. Same
+    operations and order as the scalar stage, no FMA: the result equals the scalar one bit for bit
+    (D17, tested). The first stage (`s = 1`) and the radix-2 stage stay scalar; the `n = 4` last
+    stage is the AVX2 one of D17.
+*   **Why:** README step 4; `Dif8` is the fastest scalar class (B6).
+*   **Measured (B11):** the AVX2 `Dif8` takes 0.48 to 0.68 of the scalar `Dif8` time from N = 64 to
+    2^18, and 0.83 at 2^20; it takes 0.50 to 0.77 of the AVX2 `Dif4` time from N = 16.
+*   **Limit:** the other classes, SSE2 and NEON are open. One CPU measured.
