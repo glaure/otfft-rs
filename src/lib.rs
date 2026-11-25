@@ -193,11 +193,11 @@ impl Kernel {
         Kernel::Dif8
     }
 
-    /// Whether the class has stages in AVX2 form: `Dif4`, whose radix-4 stages with a stride of 2
-    /// or more are vectorised (D17). The other classes are scalar so far, except that a radix-4
-    /// last stage (`n = 4`) of a `Dif` class is vectorised too.
+    /// Whether the class has stages in AVX2 form: `Dif4` and `Dif8`, whose radix-4 and radix-8
+    /// stages with a stride of 2 or more are vectorised (D17, D18). The other classes are scalar so
+    /// far, except that a radix-4 last stage (`n = 4`) of a `Dif` class is vectorised too.
     pub fn has_avx2(self) -> bool {
-        self == Kernel::Dif4
+        matches!(self, Kernel::Dif4 | Kernel::Dif8)
     }
 
     /// Largest radix of the stages.
@@ -321,7 +321,7 @@ impl ComplexFft {
                 n /= 16;
                 s *= 16;
             } else if n >= 8 && radix >= 8 {
-                self.radix8_stage(src, dst, n, s, inverse);
+                self.radix8_stage_isa(src, dst, n, s, inverse);
                 n /= 8;
                 s *= 8;
             } else if n >= 8 {
@@ -733,6 +733,16 @@ impl ComplexFft {
             return unsafe { avx2::radix4_stage(src, dst, &self.twiddle, n, s, inverse) };
         }
         self.radix4_stage(src, dst, n, s, inverse);
+    }
+
+    /// `radix8_stage` in the instruction set of the plan, when it has a form for this stride.
+    fn radix8_stage_isa(&self, src: &[Complex], dst: &mut [Complex], n: usize, s: usize, inverse: bool) {
+        #[cfg(target_arch = "x86_64")]
+        if self.isa == Isa::Avx2 && s >= 2 {
+            // SAFETY: a plan has `Isa::Avx2` only if `with_kernel_isa` found the CPU feature.
+            return unsafe { avx2::radix8_stage(src, dst, &self.twiddle, n, s, inverse) };
+        }
+        self.radix8_stage(src, dst, n, s, inverse);
     }
 
     /// `radix4_last` in the instruction set of the plan.

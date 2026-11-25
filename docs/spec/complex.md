@@ -55,9 +55,9 @@ Rules
     `with_kernel_isa(n, kernel, isa)` picks it and returns `Error::IsaUnavailable(isa)` if the CPU
     lacks it; `new` and `with_kernel` use `Isa::detect()` (the best one of this CPU); `isa()`
     returns it. Every available instruction set gives the same bits as `Isa::Scalar` for every class
-    and both directions, lengths 1 to 2^11, and the result of CFFT-2 and CFFT-3. Only `Dif4` has
-    vectorised stages so far (D17); the other classes run their scalar stages, except a radix-4
-    last stage. (`every_isa_matches_the_direct_sum_and_the_scalar_bits`,
+    and both directions, lengths 1 to 2^11, and the result of CFFT-2 and CFFT-3. Only `Dif4` and `Dif8`
+    have vectorised stages so far (D17, D18); the other classes run their scalar stages, except a
+    radix-4 last stage. (`every_isa_matches_the_direct_sum_and_the_scalar_bits`,
     `an_unavailable_isa_is_refused_and_detect_is_available`)
 *   **CFFT-11** `[gap]` Speed: scalar radix 8 in tiles, finished by one radix-4 or radix-2 stage
     (D9), 2.3x to 5.5x slower than RustFFT (`docs/benchmarks.md`, B3). That is the default class. Right: at least as fast as the C++ library at the

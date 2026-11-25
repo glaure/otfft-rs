@@ -344,3 +344,34 @@ and 0.76 to 0.94 at the shortest lengths and at 2^20 (the first stage is scalar,
 probably limited by memory; neither is measured). It is faster than the scalar `Dif8` from
 N = 4096 to 2^18 (0.69 to 0.82) and slower or equal (0.99 to 1.86) from N = 16 to 2048 and at 2^20 (1.10). Nothing here says what
 the order is on another CPU.
+
+
+B11: AVX2 `Dif8` next to scalar `Dif8` and AVX2 `Dif4`
+------------------------------------------------------
+*   **Machine, compiler, crates:** as B1 (Ryzen 9 3900X, rustc 1.100.0, rustfft 6.4.1). Load
+    average 1.1 to 1.5 during the run (a single pass, so noise of about 5% applies, B3, B4).
+*   **Command:** `cargo bench --bench complex_fft -- --noplot 'otfft-rs-(Dif4|Dif8)'`, in place, no
+    scaling, no copy, median of criterion's estimate. `-Avx2` is `Isa::Avx2`, `Dif8` is
+    `Isa::Scalar`. No FMA (D17).
+
+| N         | Dif8      | Dif8-Avx2 | Dif4-Avx2 | Dif8-Avx2 / Dif8 | Dif8-Avx2 / Dif4-Avx2 |
+|----------:|----------:|----------:|----------:|-----------------:|----------------------:|
+| 16        | 94 ns     | 94 ns     | 141 ns    | 1.01 | 0.67 |
+| 32        | 155 ns    | 133 ns    | 267 ns    | 0.86 | 0.50 |
+| 64        | 380 ns    | 260 ns    | 502 ns    | 0.68 | 0.52 |
+| 256       | 1.64 µs   | 1.00 µs   | 1.85 µs   | 0.61 | 0.54 |
+| 1024      | 8.25 µs   | 4.39 µs   | 8.29 µs   | 0.53 | 0.53 |
+| 2048      | 17.26 µs  | 8.79 µs   | 17.22 µs  | 0.51 | 0.51 |
+| 4096      | 42.12 µs  | 20.15 µs  | 33.36 µs  | 0.48 | 0.60 |
+| 8192      | 90.38 µs  | 46.46 µs  | 73.33 µs  | 0.51 | 0.63 |
+| 16384     | 186.26 µs | 96.83 µs  | 147.63 µs | 0.52 | 0.66 |
+| 32768     | 442.99 µs | 227.46 µs | 310.06 µs | 0.51 | 0.73 |
+| 65536     | 887.55 µs | 466.96 µs | 608.23 µs | 0.53 | 0.77 |
+| 131072    | 1.84 ms   | 917.69 µs | 1.35 ms   | 0.50 | 0.68 |
+| 262144    | 4.14 ms   | 2.09 ms   | 2.72 ms   | 0.50 | 0.77 |
+| 1048576   | 23.65 ms  | 19.60 ms  | 25.86 ms  | 0.83 | 0.76 |
+
+**Reading:** the AVX2 `Dif8` takes 0.48 to 0.68 of the scalar `Dif8` time from N = 64 to 2^18
+and 0.83 at 2^20, and 0.86 and 1.01 at N = 32 and 16, where the stride-1 first stage is a larger
+part of the work. It takes 0.50 to 0.77 of the AVX2 `Dif4` time at every length. Nothing here says
+what the order is on another CPU, or for SSE2.

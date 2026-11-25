@@ -12,7 +12,7 @@ Rules
     `Dif16`, `Dit4`, `Dit8` and `Dit16` are done (CFFT-12, D12 to D16). README step 3.
 *   **PLN-2** `[planned]` SIMD with run-time selection: AVX2 and SSE2 with `std::arch` and
     `is_x86_feature_detected!`, a scalar fallback, NEON later (C++ D3). README step 4. Done so
-    far: the AVX2 stages of `Dif4` (CFFT-13, D17); the other classes and SSE2 are open.
+    far: the AVX2 stages of `Dif4` and `Dif8` (CFFT-13, D17, D18); the other classes and SSE2 are open.
 *   **PLN-3** `[planned]` Real FFT and DCT-II (C++: `RealFFT` with N output values, input of `inv`
     destroyed; `RealDCT`). README step 5.
 *   **PLN-4** `[planned]` Any length: mixed radix with 3, 5 and 7, and Bluestein for a prime factor
