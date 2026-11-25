@@ -247,3 +247,35 @@ B7: the Dit4 class next to Dif4 and Dif8
 N = 16 and 64, within noise at 2^17 to 2^20), and 1.2x to 2.4x the time of `Dif8`, which stays the
 fastest class on this CPU. The twiddle multiplication before the butterfly instead of after it
 is the only difference, so the gain is small. Nothing here says what the order is on another CPU.
+
+
+B8: the Dit8 class next to Dif8 and Dit4
+----------------------------------------
+*   **Machine, compiler, crates:** as B1 (Ryzen 9 3900X, rustc 1.100.0, rustfft 6.4.1). Load
+    average 1 to 2 during the run (a single pass, so noise of about 5% applies, B3, B4).
+*   **Command:** `cargo bench --bench complex_fft -- --noplot 'otfft-rs-(Dif8|Dit4|Dit8)'`, in
+    place, no scaling, no copy, median of criterion's estimate. The `Dif8` and `Dit4` numbers are
+    of this run, so they differ a little from B6 and B7.
+*   **Classes:** `Dit8` is not tiled (D15).
+
+| N         | Dif8      | Dit4      | Dit8      | Dit8 / Dif8 | Dit8 / Dit4 |
+|----------:|----------:|----------:|----------:|------------:|------------:|
+| 16        | 90 ns     | 133 ns    | 74 ns     | 0.81 | 0.55 |
+| 32        | 136 ns    | 328 ns    | 147 ns    | 1.08 | 0.45 |
+| 64        | 353 ns    | 646 ns    | 391 ns    | 1.11 | 0.61 |
+| 256       | 1.57 µs   | 3.01 µs   | 1.78 µs   | 1.14 | 0.59 |
+| 1024      | 8.14 µs   | 13.62 µs  | 9.12 µs   | 1.12 | 0.67 |
+| 2048      | 16.60 µs  | 29.13 µs  | 20.00 µs  | 1.20 | 0.69 |
+| 4096      | 40.99 µs  | 59.97 µs  | 57.46 µs  | 1.40 | 0.96 |
+| 8192      | 88.19 µs  | 130.59 µs | 106.53 µs | 1.21 | 0.82 |
+| 16384     | 181.02 µs | 276.28 µs | 225.73 µs | 1.25 | 0.82 |
+| 32768     | 440.94 µs | 577.60 µs | 613.11 µs | 1.39 | 1.06 |
+| 65536     | 884.48 µs | 1.16 ms   | 1.22 ms   | 1.38 | 1.05 |
+| 131072    | 1.82 ms   | 2.58 ms   | 2.52 ms   | 1.38 | 0.98 |
+| 262144    | 4.12 ms   | 5.30 ms   | 6.26 ms   | 1.52 | 1.18 |
+| 1048576   | 23.45 ms  | 30.33 ms  | 28.09 ms  | 1.20 | 0.93 |
+
+**Reading:** `Dit8` takes 0.55 to 0.96 of the time of `Dit4` up to N = 2^14 (2^12 is 0.96, within
+noise) and 0.93 to 1.18 above it. Against `Dif8` it wins only at N = 16 (0.81) and takes 1.08x to
+1.52x the time elsewhere, so `Dif8` stays the fastest class on this CPU. Nothing here says what
+the order is on another CPU.
