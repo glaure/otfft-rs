@@ -279,3 +279,36 @@ B8: the Dit8 class next to Dif8 and Dit4
 noise) and 0.93 to 1.18 above it. Against `Dif8` it wins only at N = 16 (0.81) and takes 1.08x to
 1.52x the time elsewhere, so `Dif8` stays the fastest class on this CPU. Nothing here says what
 the order is on another CPU.
+
+
+B9: the Dit16 class next to Dif8, Dif16 and Dit8
+------------------------------------------------
+*   **Machine, compiler, crates:** as B1 (Ryzen 9 3900X, rustc 1.100.0, rustfft 6.4.1). Load
+    average 1.2 to 1.7 during the run (a single pass, so noise of about 5% applies, B3, B4).
+*   **Command:** `cargo bench --bench complex_fft -- --noplot 'otfft-rs-(Dif8|Dif16|Dit8|Dit16)'`,
+    in place, no scaling, no copy, median of criterion's estimate. The other classes are of this
+    run, so they differ a little from B6 to B8.
+*   **Classes:** `Dit16` is not tiled (D16).
+
+| N         | Dif8      | Dif16     | Dit8      | Dit16     | Dit16 / Dif16 | Dit16 / Dit8 | Dit16 / Dif8 |
+|----------:|----------:|----------:|----------:|----------:|--------------:|-------------:|-------------:|
+| 16        | 76 ns     | 95 ns     | 74 ns     | 76 ns     | 0.79 | 1.02 | 1.00 |
+| 32        | 135 ns    | 163 ns    | 145 ns    | 147 ns    | 0.90 | 1.02 | 1.09 |
+| 64        | 343 ns    | 329 ns    | 390 ns    | 319 ns    | 0.97 | 0.82 | 0.93 |
+| 256       | 1.57 µs   | 1.88 µs   | 1.75 µs   | 1.89 µs   | 1.01 | 1.08 | 1.20 |
+| 1024      | 7.98 µs   | 8.58 µs   | 8.99 µs   | 8.77 µs   | 1.02 | 0.98 | 1.10 |
+| 2048      | 17.13 µs  | 20.28 µs  | 19.41 µs  | 26.75 µs  | 1.32 | 1.38 | 1.56 |
+| 4096      | 40.75 µs  | 44.70 µs  | 57.73 µs  | 59.46 µs  | 1.33 | 1.03 | 1.46 |
+| 8192      | 88.62 µs  | 95.45 µs  | 105.08 µs | 106.11 µs | 1.11 | 1.01 | 1.20 |
+| 16384     | 187.24 µs | 201.25 µs | 229.00 µs | 227.16 µs | 1.13 | 0.99 | 1.21 |
+| 32768     | 437.59 µs | 464.34 µs | 600.23 µs | 624.48 µs | 1.34 | 1.04 | 1.43 |
+| 65536     | 881.54 µs | 1.01 ms   | 1.18 ms   | 1.30 ms   | 1.29 | 1.10 | 1.48 |
+| 131072    | 1.79 ms   | 2.18 ms   | 2.45 ms   | 2.78 ms   | 1.28 | 1.14 | 1.56 |
+| 262144    | 4.20 ms   | 4.74 ms   | 6.29 ms   | 5.99 ms   | 1.26 | 0.95 | 1.42 |
+| 1048576   | 24.51 ms  | 36.78 ms  | 29.88 ms  | 39.77 ms  | 1.08 | 1.33 | 1.62 |
+
+**Reading:** `Dit16` takes 0.79 to 0.97 of the time of `Dif16` at N = 16 to 64, and 1.01x to
+1.34x the time at the other lengths (2^20: 1.08). Against `Dit8` it is mixed, 0.82 to 1.38, with
+most lengths within the 5% noise. Against `Dif8` it wins only at N = 64 (0.93) and ties at
+N = 16, so `Dif8` stays the fastest class on this CPU. Nothing here says what the order is on
+another CPU.

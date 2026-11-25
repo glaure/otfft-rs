@@ -203,3 +203,17 @@ D15: the Dit8 class (radix-8 decimation in time)
 *   **Limit:** not tiled, unlike `Dif8` (D9): the eight input streams of a DIT stage are `s`
     elements apart, and the stage reads them one butterfly at a time; the tiling of D9 may explain
     part of the gap above N = 2^15, but that is not measured. One CPU measured.
+
+
+D16: the Dit16 class (radix-16 decimation in time)
+--------------------------------------------------
+*   **What:** `Kernel::Dit16`: Stockham DIT with radix-16 stages (C++ class DIT16), one radix-2,
+    radix-4 or radix-8 stage first when log2(N) is not a multiple of 4. Each stage is the
+    transpose of the `Dif16` stage with the same `n` and `s`: input `16p + r` is multiplied by
+    `w^(rp)`, then the 16-point DFT (two 8-point DFTs, as in `Dif16`) writes output
+    `p + k n/16`. The stages run from `n = 2`, `4`, `8` or `16` up to `n = N`; the small first
+    stages reuse the code of `Dit4` and `Dit8`. Not the default.
+*   **Why:** D12, every class stays. Measured (B9), it is faster than `Dif16` only at N = 16 to 64
+    and slower or equal elsewhere, and it is not faster than `Dif8` at any length but N = 64.
+*   **Limit:** not tiled, unlike `Dif16` (D13). This completes the classes of README step 3;
+    the choice among them is step 8. One CPU measured.
